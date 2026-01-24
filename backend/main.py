@@ -9,6 +9,8 @@ from loguru import logger
 from app.core.config import settings
 from app.models import init_db, close_db
 from app.rag import rag_engine
+from app.services.mongodb_service import mongodb_service
+from app.services.redis_service import redis_service
 
 
 @asynccontextmanager
@@ -24,6 +26,21 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Database initialization failed: {e}")
         logger.warning("Application will start without database connection")
+    
+    # 初始化MongoDB (可选)
+    try:
+        await mongodb_service.initialize(
+            uri=settings.MONGODB_URI,
+            db_name=settings.MONGODB_DB
+        )
+    except Exception as e:
+        logger.warning(f"MongoDB initialization failed: {e}")
+    
+    # 初始化Redis (可选)
+    try:
+        await redis_service.initialize(url=settings.REDIS_URL)
+    except Exception as e:
+        logger.warning(f"Redis initialization failed: {e}")
     
     # 初始化RAG引擎
     await rag_engine.initialize()
@@ -45,13 +62,38 @@ app = FastAPI(
     description="基于RAG的文献分析大数据平台",
     lifespan=lifespan,
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url=None
 )
+
+
+# 自定义ReDoc路由
+from fastapi.responses import HTMLResponse
+
+@app.get("/redoc", include_in_schema=False)
+async def custom_redoc():
+    return HTMLResponse("""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>文献分析大数据平台 - ReDoc</title>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
+    <style>
+        body { margin: 0; padding: 0; }
+    </style>
+</head>
+<body>
+    <redoc spec-url='/openapi.json'></redoc>
+    <script src="https://unpkg.com/redoc@latest/bundles/redoc.standalone.js"></script>
+</body>
+</html>
+""")
 
 # CORS配置
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应限制来源
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -74,16 +116,15 @@ async def health_check():
     return {
         "status": "healthy",
         "database": "connected",
-        "rag_engine": "initialized"
+        "mongodb": "connected" if mongodb_service.is_connected else "fallback",
+        "redis": "connected" if redis_service.is_connected else "fallback",
+        "rag_engine": "initialized" if rag_engine._initialized else "not_ready"
     }
 
 
-# 注册API路由 (待实现)
-# from app.api.v1 import auth, papers, rag, analysis
-# app.include_router(auth.router, prefix="/api/v1/auth", tags=["认证"])
-# app.include_router(papers.router, prefix="/api/v1/papers", tags=["文献"])
-# app.include_router(rag.router, prefix="/api/v1/rag", tags=["RAG问答"])
-# app.include_router(analysis.router, prefix="/api/v1/analysis", tags=["分析"])
+# 注册API路由
+from app.api.v1 import api_router
+app.include_router(api_router, prefix="/api/v1")
 
 
 if __name__ == "__main__":
@@ -94,3 +135,4 @@ if __name__ == "__main__":
         port=8000,
         reload=settings.DEBUG
     )
+

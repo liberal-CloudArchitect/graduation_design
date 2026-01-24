@@ -32,6 +32,7 @@ class RAGEngine:
         self.milvus = None
         self.llm = None
         self._initialized = False
+        self._chunk_cache: Dict[str, str] = {}  # 内存缓存
     
     async def initialize(self):
         """初始化RAG引擎组件"""
@@ -132,12 +133,16 @@ class RAGEngine:
         if not chunks:
             return []
         
+        from app.services.mongodb_service import mongodb_service
+        
         # 向量化
         embeddings = self.embed(chunks)
         
         # 构建实体
         entities = []
         vector_ids = []
+        chunk_docs = []
+        
         for i, (emb, chunk) in enumerate(zip(embeddings, chunks)):
             vector_id = f"{paper_id}_{i}"
             vector_ids.append(vector_id)
@@ -148,15 +153,28 @@ class RAGEngine:
                 "project_id": project_id or 0,
                 "vector": emb
             })
+            chunk_docs.append({
+                "index": i,
+                "text": chunk,
+                "page_number": None
+            })
+            # 内存缓存
+            self._chunk_cache[f"{paper_id}_{i}"] = chunk
+        
+        # 存储到MongoDB
+        await mongodb_service.insert_chunks(paper_id, chunk_docs)
         
         # 插入Milvus
         if self.milvus:
-            self.milvus.insert(
-                collection_name="paper_vectors",
-                data=entities
-            )
-            logger.info(f"Indexed {len(chunks)} chunks for paper {paper_id}")
+            try:
+                self.milvus.insert(
+                    collection_name="paper_vectors",
+                    data=entities
+                )
+            except Exception as e:
+                logger.warning(f"Milvus insert failed: {e}")
         
+        logger.info(f"Indexed {len(chunks)} chunks for paper {paper_id}")
         return vector_ids
     
     async def search(
@@ -253,15 +271,33 @@ class RAGEngine:
         search_results: List[Dict]
     ) -> List[Dict[str, Any]]:
         """从MongoDB获取文档内容"""
-        # TODO: 实现MongoDB查询
+        from app.services.mongodb_service import mongodb_service
+        
         docs = []
         for result in search_results:
-            docs.append({
-                "paper_id": result.get("paper_id"),
-                "chunk_index": result.get("chunk_index"),
-                "text": "[待获取文档内容]",
-                "score": result.get("distance", 0)
-            })
+            paper_id = result.get("paper_id")
+            chunk_index = result.get("chunk_index")
+            
+            # 尝试从MongoDB获取
+            chunk = await mongodb_service.get_chunk_by_index(paper_id, chunk_index)
+            
+            if chunk:
+                docs.append({
+                    "paper_id": paper_id,
+                    "chunk_index": chunk_index,
+                    "text": chunk.get("text", ""),
+                    "page_number": chunk.get("page_number"),
+                    "score": result.get("distance", 0)
+                })
+            else:
+                # 回退：使用内存缓存中的数据
+                docs.append({
+                    "paper_id": paper_id,
+                    "chunk_index": chunk_index,
+                    "text": self._chunk_cache.get(f"{paper_id}_{chunk_index}", "[内容未找到]"),
+                    "score": result.get("distance", 0)
+                })
+        
         return docs
     
     def _build_context(self, docs: List[Dict]) -> str:

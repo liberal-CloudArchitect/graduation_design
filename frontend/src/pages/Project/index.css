@@ -1,0 +1,73 @@
+.projects-page {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 32px;
+}
+
+.page-header h3.ant-typography {
+    margin-bottom: 4px !important;
+    font-size: 24px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+}
+
+.project-card {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+.project-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.1);
+}
+
+.project-card .ant-card-body {
+    padding: 24px;
+}
+
+.project-icon {
+    font-size: 32px;
+    color: #667eea;
+}
+
+.project-card .ant-card-meta-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.project-card .ant-card-meta-description {
+    color: #9ca3af;
+    margin-top: 4px;
+}
+
+.project-stats {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #f3f4f6;
+}
+
+.empty-card {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.empty-card .ant-card-body {
+    padding: 60px 24px;
+}

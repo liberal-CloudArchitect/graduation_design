@@ -1,0 +1,147 @@
+.dashboard {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.dashboard-header {
+    margin-bottom: 32px;
+}
+
+.dashboard-header h3.ant-typography {
+    margin-bottom: 8px !important;
+    font-size: 24px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.dashboard-header .ant-typography-secondary {
+    font-size: 14px;
+    color: #6b7280;
+}
+
+.stats-row {
+    margin-bottom: 24px;
+}
+
+.stat-card {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    height: 100%;
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.stat-card .ant-card-body {
+    padding: 24px;
+}
+
+.stat-card .ant-statistic-title {
+    color: #6b7280;
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.stat-card .ant-statistic-content {
+    font-size: 32px;
+    font-weight: 600;
+}
+
+.stat-card .ant-statistic-content-prefix {
+    margin-right: 8px;
+    color: #667eea;
+}
+
+.stat-card .ant-statistic-content-value {
+    color: #1f2937;
+}
+
+.quick-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.quick-actions .ant-btn {
+    height: 48px;
+    font-size: 16px;
+}
+
+.recent-projects {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.recent-projects .ant-card-head {
+    border-bottom: 1px solid #f3f4f6;
+    padding: 16px 24px;
+}
+
+.recent-projects .ant-card-head-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+.recent-projects .ant-card-body {
+    padding: 0;
+}
+
+.project-item {
+    cursor: pointer;
+    padding: 20px 24px !important;
+    border-bottom: 1px solid #f9fafb;
+    transition: background 0.2s;
+    margin: 0 !important;
+}
+
+.project-item:last-child {
+    border-bottom: none;
+}
+
+.project-item:hover {
+    background: #f9fafb;
+}
+
+.project-item .ant-list-item-meta-avatar {
+    color: #667eea;
+}
+
+.project-item .ant-list-item-meta-title {
+    font-weight: 500;
+    color: #1f2937;
+}
+
+.project-item .ant-list-item-meta-description {
+    color: #9ca3af;
+}
+
+.project-stats {
+    text-align: right;
+}
+
+.project-stats .ant-typography {
+    color: #6b7280;
+    font-size: 13px;
+}
+
+.loading-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 60px;
+}
+
+/* Empty State */
+.ant-empty {
+    padding: 40px 0;
+}
+
+.ant-empty-description {
+    color: #9ca3af;
+}

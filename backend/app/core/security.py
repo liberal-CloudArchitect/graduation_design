@@ -13,6 +13,9 @@ from app.core.config import settings
 # 密码加密上下文
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+# Token过期时间常量
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+
 
 class TokenData(BaseModel):
     """Token数据模型"""

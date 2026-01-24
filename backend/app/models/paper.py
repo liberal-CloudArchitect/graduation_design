@@ -3,7 +3,7 @@ Paper Model
 """
 from datetime import datetime, date
 from typing import Optional, List, Any
-from sqlalchemy import String, Text, Boolean, DateTime, Integer, Date, JSON, func
+from sqlalchemy import String, Text, Boolean, DateTime, Integer, Date, JSON, func, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -15,8 +15,8 @@ class Paper(Base):
     __tablename__ = "papers"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    project_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("projects.id"), nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     
     # 基础信息
     title: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -73,8 +73,8 @@ class Note(Base):
     __tablename__ = "notes"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    paper_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    paper_id: Mapped[int] = mapped_column(Integer, ForeignKey("papers.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     
     content: Mapped[str] = mapped_column(Text, nullable=False)
     page_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -99,8 +99,8 @@ class Conversation(Base):
     __tablename__ = "conversations"
     
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    project_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    project_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("projects.id"), nullable=True, index=True)
     
     title: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     messages: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)  # [{role, content, references, timestamp}]
