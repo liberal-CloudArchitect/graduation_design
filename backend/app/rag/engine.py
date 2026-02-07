@@ -5,6 +5,7 @@ from typing import List, Optional, Dict, Any
 from loguru import logger
 
 from app.core.config import settings
+from app.rag.memory_engine import DynamicMemoryEngine
 
 
 class RAGEngine:
@@ -31,8 +32,10 @@ class RAGEngine:
         self.embedder = None
         self.milvus = None
         self.llm = None
+        self.memory_engine = None  # 动态记忆引擎
         self._initialized = False
         self._chunk_cache: Dict[str, str] = {}  # 内存缓存
+
     
     async def initialize(self):
         """初始化RAG引擎组件"""
@@ -50,8 +53,21 @@ class RAGEngine:
         # 3. 初始化LLM
         await self._init_llm()
         
+        # 4. 初始化动态记忆引擎
+        await self._init_memory_engine()
+        
         self._initialized = True
         logger.info("RAG Engine initialized successfully")
+    
+    async def _init_memory_engine(self):
+        """初始化动态记忆引擎"""
+        try:
+            self.memory_engine = DynamicMemoryEngine()
+            await self.memory_engine.initialize()
+            logger.info("Memory engine initialized")
+        except Exception as e:
+            logger.warning(f"Failed to initialize memory engine: {e}")
+            self.memory_engine = None
     
     async def _init_embedder(self):
         """初始化BGE-M3向量化模型"""
@@ -219,51 +235,78 @@ class RAGEngine:
         self,
         question: str,
         project_id: Optional[int] = None,
-        top_k: int = 5
+        top_k: int = 5,
+        use_memory: bool = True
     ) -> Dict[str, Any]:
         """
-        RAG问答
+        RAG问答 (含记忆增强)
         
         Args:
             question: 用户问题
             project_id: 项目ID
             top_k: 检索文档数量
+            use_memory: 是否使用记忆系统
             
         Returns:
             包含答案和引用的字典
         """
-        # 1. 检索相关文档
+        memory_results = []
+        
+        # 1. 检索历史记忆
+        if use_memory and self.memory_engine:
+            try:
+                memory_results = await self.memory_engine.retrieve(
+                    question, project_id, top_k=3
+                )
+                logger.debug(f"Retrieved {len(memory_results)} memories")
+            except Exception as e:
+                logger.warning(f"Memory retrieval failed: {e}")
+        
+        # 2. 检索相关文档
         search_results = await self.search(question, project_id, top_k)
         
-        # 2. 获取文档内容
+        # 3. 获取文档内容
         docs = await self._fetch_documents(search_results)
         
-        # 3. 构建上下文
-        context = self._build_context(docs)
+        # 4. 构建上下文 (融合记忆与文献)
+        context = self._build_context_with_memory(docs, memory_results)
         
-        # 4. 生成答案
+        # 5. 生成答案
         if self.llm:
-            prompt = f"""根据以下参考文献回答用户问题。
+            prompt = f"""根据以下参考资料回答用户问题。
 
-参考文献:
+参考资料:
 {context}
 
 用户问题: {question}
 
 要求:
-1. 仅基于提供的参考文献回答
+1. 仅基于提供的参考资料回答
 2. 如有引用，使用[1][2]格式标注
-3. 如果文献中没有相关信息，请明确说明
+3. 如果资料中没有相关信息，请明确说明
+4. 如有历史对话记忆相关内容，可适当参考
 """
             response = await self.llm.ainvoke(prompt)
             answer = response.content
         else:
             answer = "LLM未初始化，无法生成答案"
         
+        # 6. 保存本次交互为新记忆
+        if use_memory and self.memory_engine:
+            try:
+                await self.memory_engine.add_memory(
+                    content=f"Q: {question}\nA: {answer}",
+                    metadata={"project_id": project_id or 0, "agent_source": "qa_agent"}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to save memory: {e}")
+        
         return {
             "answer": answer,
             "references": docs,
-            "method": "rag_mvp"
+            "memory_used": len(memory_results) > 0,
+            "memory_count": len(memory_results),
+            "method": "rag_memory_enhanced"
         }
     
     async def _fetch_documents(
@@ -305,6 +348,39 @@ class RAGEngine:
         context_parts = []
         for i, doc in enumerate(docs, 1):
             context_parts.append(f"[{i}] {doc.get('text', '')}")
+        return "\n\n".join(context_parts)
+    
+    def _build_context_with_memory(
+        self, 
+        docs: List[Dict], 
+        memories: List
+    ) -> str:
+        """
+        构建融合记忆的Prompt上下文
+        
+        Args:
+            docs: 文献检索结果
+            memories: 历史记忆列表
+            
+        Returns:
+            融合后的上下文字符串
+        """
+        context_parts = []
+        
+        # 添加历史记忆 (如果有)
+        if memories:
+            context_parts.append("【历史对话记忆】")
+            for i, mem in enumerate(memories, 1):
+                content = getattr(mem, 'content', str(mem))
+                context_parts.append(f"[M{i}] {content}")
+            context_parts.append("")  # 空行分隔
+        
+        # 添加文献内容
+        if docs:
+            context_parts.append("【文献参考】")
+            for i, doc in enumerate(docs, 1):
+                context_parts.append(f"[{i}] {doc.get('text', '')}")
+        
         return "\n\n".join(context_parts)
 
 
