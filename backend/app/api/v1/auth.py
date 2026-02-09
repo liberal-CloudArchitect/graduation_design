@@ -7,7 +7,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db
+from app.core.deps import get_db, get_current_user
 from app.core.security import (
     get_password_hash, 
     verify_password, 
@@ -172,12 +172,7 @@ async def login_for_access_token(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(
-    current_user: User = Depends(lambda: None)  # TODO: 替换为get_current_user
+    current_user: User = Depends(get_current_user)
 ):
     """获取当前登录用户信息"""
-    # 暂时返回模拟数据，等待get_current_user实现
-    from app.core.deps import get_current_user
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="请先实现get_current_user依赖"
-    )
+    return current_user

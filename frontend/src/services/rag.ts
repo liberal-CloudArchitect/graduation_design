@@ -92,6 +92,12 @@ export const ragApi = {
     },
 
     /**
+     * 获取对话总数
+     */
+    getConversationCount: () =>
+        authAxios.get<{ count: number }>('/rag/conversations/count'),
+
+    /**
      * 获取对话历史列表
      */
     getConversations: (projectId?: number, limit = 20) =>

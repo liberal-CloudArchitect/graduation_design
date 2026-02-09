@@ -122,6 +122,63 @@ services:
       timeout: 10s
       retries: 5
 
+  # Backend API Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: graduation_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/graduation_project
+      - MONGODB_URI=mongodb://mongodb:27017
+      - REDIS_URL=redis://redis:6379
+      - MILVUS_HOST=milvus
+      - MILVUS_PORT=19530
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./bge-m3:/models/bge-m3
+      - ./layoutlmv3-base:/models/layoutlmv3-base
+      - ./chatglm3-6b:/models/chatglm3-6b
+
+  # Frontend Dev Server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: graduation_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: graduation_nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
 volumes:
   postgres_data:
   mongodb_data:

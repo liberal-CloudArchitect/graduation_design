@@ -11,6 +11,7 @@ from app.models import init_db, close_db
 from app.rag import rag_engine
 from app.services.mongodb_service import mongodb_service
 from app.services.redis_service import redis_service
+from app.agents.coordinator import agent_coordinator
 
 
 @asynccontextmanager
@@ -44,6 +45,13 @@ async def lifespan(app: FastAPI):
     
     # 初始化RAG引擎
     await rag_engine.initialize()
+    
+    # 初始化Agent协调器
+    try:
+        await agent_coordinator.initialize(rag_engine)
+        logger.info("Agent coordinator initialized")
+    except Exception as e:
+        logger.warning(f"Agent coordinator initialization failed: {e}")
     
     yield
     
@@ -118,7 +126,9 @@ async def health_check():
         "database": "connected",
         "mongodb": "connected" if mongodb_service.is_connected else "fallback",
         "redis": "connected" if redis_service.is_connected else "fallback",
-        "rag_engine": "initialized" if rag_engine._initialized else "not_ready"
+        "rag_engine": "initialized" if rag_engine._initialized else "not_ready",
+        "agent_system": "initialized" if agent_coordinator._initialized else "not_ready",
+        "agents_count": len(agent_coordinator.agents) if agent_coordinator._initialized else 0
     }
 
 

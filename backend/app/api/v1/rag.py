@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from datetime import datetime
 import json
 import asyncio
@@ -295,6 +295,21 @@ async def get_conversation(
         ],
         created_at=conversation.created_at
     )
+
+
+@router.get("/conversations/count")
+async def get_conversation_count(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取当前用户的对话总数"""
+    result = await db.execute(
+        select(func.count(Conversation.id)).where(
+            Conversation.user_id == current_user.id
+        )
+    )
+    count = result.scalar() or 0
+    return {"count": count}
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -8,6 +8,7 @@ import Login from './pages/Login';
 import Register from './pages/Login/Register';
 import Dashboard from './pages/Dashboard';
 import ProjectList from './pages/Project';
+import ProjectDetail from './pages/Project/Detail';
 import ChatPage from './pages/Chat';
 import './App.css';
 
@@ -31,7 +32,7 @@ function App() {
           >
             <Route index element={<Dashboard />} />
             <Route path="projects" element={<ProjectList />} />
-            <Route path="project/:id" element={<div style={{ padding: 20 }}>项目详情页开发中...</div>} />
+            <Route path="project/:id" element={<ProjectDetail />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="chat/:projectId" element={<ChatPage />} />
           </Route>

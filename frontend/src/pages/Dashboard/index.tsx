@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { projectsApi } from '../../services/projects';
+import { ragApi } from '../../services/rag';
 import type { Project } from '../../types/models';
 import './index.css';
 
@@ -18,10 +19,11 @@ const Dashboard: React.FC = () => {
     const navigate = useNavigate();
     const [projects, setProjects] = useState<Project[]>([]);
     const [loading, setLoading] = useState(true);
-    const [stats, setStats] = useState({ projectCount: 0, paperCount: 0 });
+    const [stats, setStats] = useState({ projectCount: 0, paperCount: 0, conversationCount: 0 });
 
     useEffect(() => {
         loadProjects();
+        loadConversationCount();
     }, []);
 
     const loadProjects = async () => {
@@ -29,11 +31,20 @@ const Dashboard: React.FC = () => {
             const { data } = await projectsApi.list(1, 5);
             setProjects(data.items);
             const totalPapers = data.items.reduce((sum, p) => sum + p.paper_count, 0);
-            setStats({ projectCount: data.total, paperCount: totalPapers });
+            setStats(prev => ({ ...prev, projectCount: data.total, paperCount: totalPapers }));
         } catch (error) {
             console.error('Failed to load projects:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const loadConversationCount = async () => {
+        try {
+            const { data } = await ragApi.getConversationCount();
+            setStats(prev => ({ ...prev, conversationCount: data.count }));
+        } catch (error) {
+            console.error('Failed to load conversation count:', error);
         }
     };
 
@@ -72,7 +83,7 @@ const Dashboard: React.FC = () => {
                     <Card className="stat-card">
                         <Statistic
                             title="对话次数"
-                            value={0}
+                            value={stats.conversationCount}
                             prefix={<MessageOutlined />}
                         />
                     </Card>

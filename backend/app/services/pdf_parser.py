@@ -247,15 +247,29 @@ class PDFParser:
     
     Layer 1: PDFPlumber 文本提取
     Layer 2: Tesseract OCR (扫描件)
+    Layer 2.5: LayoutLMv3 布局分析 (可选)
     Layer 3: 规则 + 正则 元数据提取
     Layer 4: LLM 智能提取 (可选)
     """
     
-    def __init__(self, use_ocr: bool = True, use_llm: bool = False, llm=None):
+    def __init__(
+        self, 
+        use_ocr: bool = True, 
+        use_llm: bool = False, 
+        use_layout: bool = True,
+        llm=None
+    ):
         self.text_extractor = TextExtractor()
         self.ocr_engine = OCREngine() if use_ocr else None
         self.metadata_extractor = MetadataExtractor()
         self.llm_extractor = LLMMetadataExtractor(llm) if use_llm else None
+        self.layout_analyzer = None
+        if use_layout:
+            try:
+                from app.services.layout_analyzer import LayoutAnalyzer
+                self.layout_analyzer = LayoutAnalyzer()
+            except Exception as e:
+                logger.warning(f"Layout analyzer not available: {e}")
     
     async def parse(self, pdf_path: str) -> PDFDocument:
         """
@@ -282,8 +296,43 @@ class PDFParser:
             pages = self.ocr_engine.recognize(pdf_path)
             total_text = " ".join(p.text for p in pages)
         
-        # Step 3: 提取元数据
+        # Step 2.5: LayoutLMv3 布局分析
+        layout_data = None
+        if self.layout_analyzer:
+            try:
+                layouts = await self.layout_analyzer.analyze_pdf(pdf_path)
+                if layouts:
+                    layout_data = layouts
+                    # 将布局信息附加到页面
+                    for page_layout in layouts:
+                        idx = page_layout.page_number - 1
+                        if 0 <= idx < len(pages):
+                            pages[idx].layout = {
+                                "regions": [
+                                    {
+                                        "type": r.region_type.value,
+                                        "text": r.text,
+                                        "bbox": r.bbox,
+                                        "confidence": r.confidence,
+                                        "order": r.order
+                                    }
+                                    for r in page_layout.regions
+                                ]
+                            }
+                    logger.info(f"Layout analysis completed for {len(layouts)} pages")
+            except Exception as e:
+                logger.warning(f"Layout analysis failed: {e}")
+        
+        # Step 3: 提取元数据 (结合布局信息增强)
         metadata = self.metadata_extractor.extract(total_text)
+        
+        # 如果有布局数据，用布局增强元数据
+        if layout_data:
+            layout_metadata = self._extract_metadata_from_layout(layout_data)
+            # 布局提取的元数据优先级更高
+            for key, value in layout_metadata.items():
+                if value and not metadata.get(key):
+                    metadata[key] = value
         
         # Step 4: LLM增强（可选）
         if self.llm_extractor and not metadata.get("title"):
@@ -306,13 +355,56 @@ class PDFParser:
         
         return doc
     
+    def _extract_metadata_from_layout(self, layouts) -> Dict[str, Any]:
+        """从布局分析结果中提取元数据"""
+        from app.services.layout_analyzer import RegionType
+        
+        metadata = {}
+        
+        if not layouts:
+            return metadata
+        
+        # 通常标题和作者在第一页
+        first_page = layouts[0]
+        
+        # 提取标题
+        title_regions = first_page.get_regions_by_type(RegionType.TITLE)
+        if title_regions:
+            metadata["title"] = " ".join(r.text for r in title_regions).strip()
+        
+        # 提取作者
+        author_regions = first_page.get_regions_by_type(RegionType.AUTHOR)
+        if author_regions:
+            author_text = " ".join(r.text for r in author_regions)
+            authors = re.split(r'[,;，；]|\sand\s', author_text)
+            metadata["authors"] = [a.strip() for a in authors if a.strip() and len(a.strip()) > 1]
+        
+        # 提取摘要
+        abstract_regions = first_page.get_regions_by_type(RegionType.ABSTRACT)
+        if abstract_regions:
+            metadata["abstract"] = " ".join(r.text for r in abstract_regions).strip()
+        
+        # 提取section结构
+        sections = []
+        for page_layout in layouts:
+            section_headers = page_layout.get_regions_by_type(RegionType.SECTION_HEADER)
+            for header in section_headers:
+                sections.append({
+                    "title": header.text,
+                    "page": page_layout.page_number
+                })
+        if sections:
+            metadata["sections"] = sections
+        
+        return metadata
+    
     def parse_sync(self, pdf_path: str) -> PDFDocument:
         """同步解析方法"""
         return asyncio.run(self.parse(pdf_path))
 
 
-# 默认解析器实例
-default_parser = PDFParser(use_ocr=False, use_llm=False)
+# 默认解析器实例 (启用布局分析)
+default_parser = PDFParser(use_ocr=False, use_llm=False, use_layout=True)
 
 
 async def parse_pdf(pdf_path: str) -> PDFDocument:
