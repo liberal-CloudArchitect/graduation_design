@@ -1,8 +1,11 @@
 """
 Agent API - Multi-Agent系统路由
+
+包含 Agent 协调问答、多Agent并行处理、写作辅助、分析、搜索、
+以及 Skills 管理（列表查询、直接执行）。
 """
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Optional, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,7 +55,13 @@ class AnalysisRequest(BaseModel):
     analysis_type: str = "auto"  # keywords, timeline, hotspot, burst, comparison
 
 
-# ============ Routes ============
+class SkillExecuteRequest(BaseModel):
+    """Skill 直接执行请求"""
+    skill_name: str
+    arguments: Dict[str, Any] = {}
+
+
+# ============ Agent Routes ============
 
 @router.post("/ask")
 async def agent_ask(
@@ -202,4 +211,87 @@ async def agent_search(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"搜索失败: {str(e)}"
+        )
+
+
+# ============ Skills Routes ============
+
+@router.get("/skills")
+async def list_skills(
+    category: Optional[str] = Query(
+        None,
+        description="按类别筛选: academic, analysis, utility",
+    ),
+    agent_type: Optional[str] = Query(
+        None,
+        description="查看指定 Agent 可用的 Skills",
+    ),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    列出所有可用的 Agent Skills
+    
+    可按类别（academic/analysis/utility）或指定Agent类型筛选。
+    返回每个 Skill 的名称、描述、参数 Schema 和所属类别。
+    """
+    if not agent_coordinator._initialized:
+        await agent_coordinator.initialize(rag_engine)
+    
+    try:
+        if agent_type:
+            skills = agent_coordinator.get_agent_skills(agent_type)
+        else:
+            skills = agent_coordinator.list_available_skills(category=category)
+        
+        return {
+            "skills": skills,
+            "total": len(skills),
+            "filter": {
+                "category": category,
+                "agent_type": agent_type,
+            },
+        }
+    except Exception as e:
+        logger.error(f"List skills failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"获取技能列表失败: {str(e)}"
+        )
+
+
+@router.post("/skills/execute")
+async def execute_skill(
+    request: SkillExecuteRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    直接执行指定的 Skill
+    
+    用于调试或高级用户直接调用原子技能。
+    需要提供 skill_name 和对应的 arguments。
+    """
+    if not agent_coordinator._initialized:
+        await agent_coordinator.initialize(rag_engine)
+    
+    try:
+        result = await agent_coordinator.execute_skill(
+            skill_name=request.skill_name,
+            **request.arguments,
+        )
+        
+        if not result.get("success"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Skill 执行失败"),
+            )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Execute skill failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Skill 执行失败: {str(e)}"
         )

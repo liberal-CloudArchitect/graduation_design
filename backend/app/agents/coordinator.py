@@ -1,7 +1,7 @@
 """
 Agent Coordinator - Agent协调器
 
-负责任务路由、多Agent协作和结果整合。
+负责任务路由、多Agent协作、结果整合和 Skills 管理。
 """
 import asyncio
 import uuid
@@ -26,6 +26,7 @@ class AgentCoordinator:
     2. 多Agent协作编排
     3. 结果整合与输出
     4. 记忆管理
+    5. Skills 注册表注入与管理
     """
     
     def __init__(self):
@@ -35,6 +36,7 @@ class AgentCoordinator:
         self._memory_engine = None
         self._cross_memory = None
         self._llm = None
+        self._skill_registry = None
         self._initialized = False
     
     async def initialize(self, rag_engine=None):
@@ -47,6 +49,16 @@ class AgentCoordinator:
         if rag_engine:
             self._memory_engine = rag_engine.memory_engine
             self._llm = rag_engine.llm
+        
+        # 初始化 Skills 注册表（导入模块触发所有 Skill 注册）
+        try:
+            from app.skills import skill_registry
+            self._skill_registry = skill_registry
+            skill_count = len(skill_registry.skills)
+            logger.info(f"Skills registry loaded: {skill_count} skills available")
+        except Exception as e:
+            logger.warning(f"Skills registry init failed: {e}")
+            self._skill_registry = None
         
         # 初始化跨Agent记忆网络
         try:
@@ -65,15 +77,20 @@ class AgentCoordinator:
         self._register_agents()
         
         self._initialized = True
-        logger.info(f"AgentCoordinator initialized with {len(self.agents)} agents")
+        logger.info(
+            f"AgentCoordinator initialized with {len(self.agents)} agents, "
+            f"skills_registry={'loaded' if self._skill_registry else 'unavailable'}"
+        )
     
     def _register_agents(self):
-        """注册所有Agent"""
+        """注册所有Agent，并注入 Skills 注册表"""
         # Retriever Agent
         retriever = RetrieverAgent(rag_engine=self._rag_engine)
         retriever.set_memory_engine(self._memory_engine)
         retriever.set_cross_memory(self._cross_memory)
         retriever.set_llm(self._llm)
+        if self._skill_registry:
+            retriever.set_skill_registry(self._skill_registry)
         self.agents[AgentType.RETRIEVER] = retriever
         
         # Analyzer Agent
@@ -81,6 +98,8 @@ class AgentCoordinator:
         analyzer.set_memory_engine(self._memory_engine)
         analyzer.set_cross_memory(self._cross_memory)
         analyzer.set_llm(self._llm)
+        if self._skill_registry:
+            analyzer.set_skill_registry(self._skill_registry)
         self.agents[AgentType.ANALYZER] = analyzer
         
         # Writer Agent
@@ -88,6 +107,8 @@ class AgentCoordinator:
         writer.set_memory_engine(self._memory_engine)
         writer.set_cross_memory(self._cross_memory)
         writer.set_llm(self._llm)
+        if self._skill_registry:
+            writer.set_skill_registry(self._skill_registry)
         self.agents[AgentType.WRITER] = writer
         
         # Search Agent
@@ -95,6 +116,8 @@ class AgentCoordinator:
         search.set_memory_engine(self._memory_engine)
         search.set_cross_memory(self._cross_memory)
         search.set_llm(self._llm)
+        if self._skill_registry:
+            search.set_skill_registry(self._skill_registry)
         self.agents[AgentType.SEARCH] = search
     
     async def process(
@@ -223,6 +246,63 @@ class AgentCoordinator:
         analyzer = self.agents.get(AgentType.ANALYZER)
         if analyzer:
             analyzer.set_trend_service(trend_service)
+    
+    # ---- Skills 管理方法 ----
+    
+    def list_available_skills(
+        self, category: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        列出所有可用的 Skills
+        
+        Args:
+            category: 按类别筛选 (academic, analysis, utility)
+            
+        Returns:
+            技能描述列表
+        """
+        if not self._skill_registry:
+            return []
+        return self._skill_registry.list_skills(category=category)
+    
+    async def execute_skill(
+        self, skill_name: str, **kwargs
+    ) -> Dict[str, Any]:
+        """
+        直接执行指定的 Skill（用于 API 层直接调用）
+        
+        Args:
+            skill_name: 技能名称
+            **kwargs: 技能参数
+            
+        Returns:
+            执行结果字典
+        """
+        if not self._skill_registry:
+            return {"success": False, "error": "Skills registry not initialized"}
+        
+        skill = self._skill_registry.get_skill(skill_name)
+        if not skill:
+            return {"success": False, "error": f"Skill '{skill_name}' not found"}
+        
+        result = await skill.run(**kwargs)
+        return {
+            "success": result.success,
+            "data": result.data,
+            "error": result.error,
+            "skill_name": result.skill_name,
+        }
+    
+    def get_agent_skills(self, agent_type: str) -> List[Dict[str, Any]]:
+        """获取指定 Agent 可用的 Skills 列表"""
+        try:
+            at = AgentType(agent_type)
+            agent = self.agents.get(at)
+            if agent:
+                return agent._get_available_skills()
+        except (ValueError, AttributeError):
+            pass
+        return []
 
 
 # 全局协调器实例
