@@ -261,6 +261,21 @@ async def list_conversations(
     ]
 
 
+@router.get("/conversations/count")
+async def get_conversation_count(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取当前用户的对话总数"""
+    result = await db.execute(
+        select(func.count(Conversation.id)).where(
+            Conversation.user_id == current_user.id
+        )
+    )
+    count = result.scalar() or 0
+    return {"count": count}
+
+
 @router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 async def get_conversation(
     conversation_id: int,
@@ -295,21 +310,6 @@ async def get_conversation(
         ],
         created_at=conversation.created_at
     )
-
-
-@router.get("/conversations/count")
-async def get_conversation_count(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """获取当前用户的对话总数"""
-    result = await db.execute(
-        select(func.count(Conversation.id)).where(
-            Conversation.user_id == current_user.id
-        )
-    )
-    count = result.scalar() or 0
-    return {"count": count}
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)

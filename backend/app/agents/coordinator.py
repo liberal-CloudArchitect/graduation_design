@@ -63,13 +63,12 @@ class AgentCoordinator:
         # 初始化跨Agent记忆网络
         try:
             from app.rag.memory_engine.cross_memory import CrossMemoryNetwork
-            self._cross_memory = CrossMemoryNetwork()
-            if self._memory_engine:
-                await self._cross_memory.initialize(self._memory_engine)
+            self._cross_memory = CrossMemoryNetwork(memory_engine=self._memory_engine)
+            await self._cross_memory.initialize()
             
             # 注册Agent到记忆网络
             for agent_type in AgentType:
-                await self._cross_memory.register_agent(agent_type.value)
+                self._cross_memory.register_agent(agent_type.value)
         except Exception as e:
             logger.warning(f"Cross memory init failed: {e}")
         

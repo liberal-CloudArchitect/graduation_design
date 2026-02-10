@@ -1,8 +1,6 @@
 # 文献分析大数据平台 - 开发环境配置
 # Version: 1.0
 
-version: '3.8'
-
 services:
   # PostgreSQL 主数据库
   postgres:
@@ -11,10 +9,10 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: cwx200431
       POSTGRES_DB: graduation_project
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -84,6 +82,7 @@ services:
   milvus:
     image: milvusdb/milvus:v2.3.4
     container_name: graduation_milvus
+    command: ["milvus", "run", "standalone"]
     restart: unless-stopped
     depends_on:
       - milvus-etcd
@@ -112,7 +111,7 @@ services:
       - xpack.security.enabled=false
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     ports:
-      - "9200:9200"
+      - "9201:9200"
       - "9300:9300"
     volumes:
       - es_data:/usr/share/elasticsearch/data

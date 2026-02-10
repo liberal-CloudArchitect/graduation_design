@@ -85,44 +85,59 @@ class DynamicMemoryEngine(BaseMemoryEngine):
             logger.error(f"Failed to ensure collection: {e}")
     
     async def _create_collection(self) -> None:
-        """创建agent_memory Collection"""
+        """创建agent_memory Collection (pymilvus 2.3.x ORM API)"""
         if not self.milvus:
             return
         
-        from pymilvus import DataType
+        from pymilvus import (
+            FieldSchema, CollectionSchema, DataType,
+            Collection, connections, utility
+        )
+        from app.core.config import settings
         
-        # 创建schema
-        schema = self.milvus.create_schema(
-            auto_id=False,
+        # 确保 ORM 连接存在
+        alias = "default"
+        if not connections.has_connection(alias):
+            connections.connect(
+                alias=alias,
+                host=settings.MILVUS_HOST,
+                port=settings.MILVUS_PORT
+            )
+        
+        # 定义字段
+        fields = [
+            FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
+            FieldSchema(name="content", dtype=DataType.VARCHAR, max_length=65535),
+            FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1024),
+            FieldSchema(name="timestamp", dtype=DataType.INT64),
+            FieldSchema(name="importance", dtype=DataType.FLOAT),
+            FieldSchema(name="access_count", dtype=DataType.INT64),
+            FieldSchema(name="memory_type", dtype=DataType.VARCHAR, max_length=32),
+            FieldSchema(name="agent_source", dtype=DataType.VARCHAR, max_length=64),
+            FieldSchema(name="project_id", dtype=DataType.INT64),
+        ]
+        
+        schema = CollectionSchema(
+            fields=fields,
+            description="Agent memory storage",
             enable_dynamic_field=True
         )
         
-        # 添加字段
-        schema.add_field("id", DataType.VARCHAR, is_primary=True, max_length=64)
-        schema.add_field("content", DataType.VARCHAR, max_length=65535)
-        schema.add_field("embedding", DataType.FLOAT_VECTOR, dim=1024)
-        schema.add_field("timestamp", DataType.INT64)
-        schema.add_field("importance", DataType.FLOAT)
-        schema.add_field("access_count", DataType.INT64)
-        schema.add_field("memory_type", DataType.VARCHAR, max_length=32)
-        schema.add_field("agent_source", DataType.VARCHAR, max_length=64)
-        schema.add_field("project_id", DataType.INT64)
-        
-        # 创建索引
-        index_params = self.milvus.prepare_index_params()
-        index_params.add_index(
-            field_name="embedding",
-            index_type="IVF_FLAT",
-            metric_type="COSINE",
-            params={"nlist": 128}
-        )
-        
-        # 创建collection
-        self.milvus.create_collection(
-            collection_name=self.COLLECTION_NAME,
+        # 创建 Collection
+        collection = Collection(
+            name=self.COLLECTION_NAME,
             schema=schema,
-            index_params=index_params
+            using=alias
         )
+        
+        # 创建向量索引
+        index_params = {
+            "index_type": "IVF_FLAT",
+            "metric_type": "COSINE",
+            "params": {"nlist": 128}
+        }
+        collection.create_index(field_name="embedding", index_params=index_params)
+        collection.load()
         
         logger.info(f"Created collection: {self.COLLECTION_NAME}")
     
