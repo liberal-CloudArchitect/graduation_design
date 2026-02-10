@@ -93,7 +93,7 @@ class AgentCoordinator:
         self.agents[AgentType.RETRIEVER] = retriever
         
         # Analyzer Agent
-        analyzer = AnalyzerAgent()
+        analyzer = AnalyzerAgent(rag_engine=self._rag_engine)
         analyzer.set_memory_engine(self._memory_engine)
         analyzer.set_cross_memory(self._cross_memory)
         analyzer.set_llm(self._llm)

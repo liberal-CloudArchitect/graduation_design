@@ -124,6 +124,31 @@ class MongoDBService:
             logger.error(f"MongoDB query failed: {e}")
             return None
     
+    async def get_project_chunks(
+        self, paper_ids: List[int], limit_per_paper: int = 10, limit: int = 50
+    ) -> List[Dict[str, Any]]:
+        """
+        获取项目下多篇文献的分块内容
+        
+        Args:
+            paper_ids: 文献ID列表
+            limit_per_paper: 每篇文献最多取多少分块
+            limit: 总共最多返回多少分块
+            
+        Returns:
+            分块列表
+        """
+        all_chunks = []
+        for paper_id in paper_ids:
+            if len(all_chunks) >= limit:
+                break
+            chunks = await self.get_chunks(paper_id)
+            for chunk in chunks[:limit_per_paper]:
+                if len(all_chunks) >= limit:
+                    break
+                all_chunks.append(chunk)
+        return all_chunks
+    
     async def delete_paper_chunks(self, paper_id: int) -> int:
         """删除文献所有分块"""
         if self._use_fallback:

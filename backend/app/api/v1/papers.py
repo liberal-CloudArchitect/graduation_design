@@ -25,12 +25,12 @@ router = APIRouter()
 class PaperResponse(BaseModel):
     """文献响应"""
     id: int
-    title: Optional[str]
-    authors: Optional[str]
-    abstract: Optional[str]
-    file_path: str
+    title: Optional[str] = None
+    authors: Optional[str] = None
+    abstract: Optional[str] = None
+    file_path: Optional[str] = None
     status: str
-    page_count: int
+    page_count: Optional[int] = None
     project_id: int
     created_at: datetime
     updated_at: datetime
@@ -228,6 +228,7 @@ async def upload_paper(
         title=file.filename,
         file_path=file_path,
         project_id=project_id,
+        user_id=current_user.id,
         status="pending"
     )
     

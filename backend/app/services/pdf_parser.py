@@ -144,20 +144,45 @@ class MetadataExtractor:
         
         return result
     
+    # 非标题关键词（版权声明、许可、页眉等）
+    _NON_TITLE_KEYWORDS = [
+        'permission', 'license', 'copyright', 'granted', 'attribution',
+        'provided', 'rights reserved', 'published by', 'preprint',
+        'arxiv', 'proceedings', 'conference', 'journal of', 'vol.',
+        'pages ', 'pp.', '©', 'doi:', 'issn', 'ieee', 'acm',
+        'springer', 'elsevier', 'under review',
+    ]
+
+    def _is_likely_title(self, text: str) -> bool:
+        """判断文本是否可能是标题（而非版权声明等）"""
+        lower = text.lower()
+        # 包含过多非标题关键词则排除
+        hit_count = sum(1 for kw in self._NON_TITLE_KEYWORDS if kw in lower)
+        if hit_count >= 2:
+            return False
+        # 过长一般不是标题
+        if len(text) > 200:
+            return False
+        # 全是小写且很长，通常不是标题
+        if text == text.lower() and len(text) > 80:
+            return False
+        return True
+
     def _extract_title(self, text: str) -> Optional[str]:
         """提取标题"""
+        # 尝试用 PDF metadata 标记模式
         for pattern in self.title_patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
                 title = match.group(1).strip()
-                if len(title) > 10 and len(title) < 300:
+                if 10 < len(title) < 300 and self._is_likely_title(title):
                     return title
         
-        # 备用：取第一行
+        # 备用：从前 30 行中找最可能的标题行
         lines = text.split('\n')
-        for line in lines:
+        for line in lines[:30]:
             line = line.strip()
-            if len(line) > 10 and len(line) < 300:
+            if 10 < len(line) < 200 and self._is_likely_title(line):
                 return line
         
         return None

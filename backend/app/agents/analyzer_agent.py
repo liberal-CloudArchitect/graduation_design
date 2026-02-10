@@ -46,12 +46,17 @@ class AnalyzerAgent(BaseAgent):
     KG_KEYWORDS = ["知识图谱", "knowledge graph", "实体关系", "关系图", "概念图"]
     CHART_KEYWORDS = ["图表", "chart", "绘图", "可视化", "画图", "plot", "visualiz"]
     
-    def __init__(self, trend_service=None):
+    def __init__(self, trend_service=None, rag_engine=None):
         super().__init__()
         self.trend_service = trend_service
+        self.rag_engine = rag_engine
     
     def set_trend_service(self, trend_service):
         self.trend_service = trend_service
+    
+    def set_rag_engine(self, rag_engine):
+        """设置RAG引擎"""
+        self.rag_engine = rag_engine
     
     def can_handle(self, query: str) -> float:
         query_lower = query.lower()
@@ -107,8 +112,20 @@ class AnalyzerAgent(BaseAgent):
             
             # ---- Skill: 知识图谱构建 ----
             if any(kw in query_lower for kw in self.KG_KEYWORDS):
-                text = kwargs.get("text", query)
-                logger.info("[AnalyzerAgent] Building knowledge graph")
+                text = kwargs.get("text", "")
+                
+                # 如果没有提供文本，从 RAG 引擎检索项目文献内容
+                if not text and project_id and self.rag_engine:
+                    try:
+                        text = await self._fetch_project_text(project_id)
+                    except Exception as e:
+                        logger.warning(f"[AnalyzerAgent] Failed to fetch project text: {e}")
+                
+                # 最终回退：使用查询文本
+                if not text:
+                    text = query
+                
+                logger.info(f"[AnalyzerAgent] Building knowledge graph with {len(text)} chars of text")
                 kg_result = await self._execute_skill(
                     "build_knowledge_graph", text=text
                 )
@@ -324,3 +341,57 @@ class AnalyzerAgent(BaseAgent):
             return None  # 需要更具体的数据结构
         
         return None
+    
+    async def _fetch_project_text(self, project_id: int) -> str:
+        """
+        从项目文献中提取文本内容用于分析
+        
+        优先从 MongoDB/内存回退 获取分块，其次从 Milvus 向量检索
+        """
+        text_parts = []
+        
+        # 方法1: 从 MongoDB 获取项目文献分块
+        try:
+            from app.services.mongodb_service import mongodb_service
+            from app.models.paper import Paper
+            from app.models.database import async_session_maker
+            from sqlalchemy import select
+            
+            async with async_session_maker() as session:
+                papers_result = await session.execute(
+                    select(Paper).where(
+                        Paper.project_id == project_id,
+                        Paper.status == "completed"
+                    )
+                )
+                papers = papers_result.scalars().all()
+            
+            if papers:
+                paper_ids = [p.id for p in papers]
+                chunks = await mongodb_service.get_project_chunks(
+                    paper_ids=paper_ids,
+                    limit_per_paper=10,
+                    limit=30
+                )
+                text_parts = [c.get("text", "") for c in chunks if c.get("text")]
+        except Exception as e:
+            logger.warning(f"[AnalyzerAgent] MongoDB fetch failed: {e}")
+        
+        # 方法2: 从 RAG 引擎的内存缓存获取
+        if not text_parts and self.rag_engine and self.rag_engine._chunk_cache:
+            for key, value in list(self.rag_engine._chunk_cache.items())[:30]:
+                if value:
+                    text_parts.append(value)
+        
+        # 方法3: 从 Milvus 向量检索获取代表性文本
+        if not text_parts and self.rag_engine:
+            try:
+                results = await self.rag_engine.search(
+                    "研究方法 实验结果 结论", project_id, top_k=10
+                )
+                docs = await self.rag_engine._fetch_documents(results)
+                text_parts = [d.get("text", "") for d in docs if d.get("text")]
+            except Exception as e:
+                logger.warning(f"[AnalyzerAgent] Milvus search failed: {e}")
+        
+        return "\n\n".join(text_parts)[:8000]

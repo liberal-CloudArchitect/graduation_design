@@ -5,11 +5,37 @@ Layout Analyzer - LayoutLMv3 布局分析器
 识别标题、段落、表格、图注、公式等区域。
 """
 import os
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 from loguru import logger
 import asyncio
+
+# Hugging Face 官方模型 ID；本地目录名（相对项目根）
+LAYOUTLMV3_HF_ID = "microsoft/layoutlmv3-base"
+LAYOUTLMV3_LOCAL_DIR = "layoutlmv3-base"
+
+
+def _resolve_layoutlmv3_path(model_path: str) -> str:
+    """
+    解析 LayoutLMv3 模型路径：
+    - 若为相对名（如 layoutlmv3-base），先查项目根下的本地目录，不存在则用 HF 官方 ID；
+    - 若为绝对路径且存在，直接使用；
+    - 若为 org/name 形式，视为 HuggingFace ID 使用。
+    """
+    path = Path(model_path)
+    if path.is_absolute() and path.exists():
+        return str(path)
+    if "/" in model_path and not path.is_absolute():
+        return model_path
+    # 相对名：项目根 = backend 的上一级（__file__ 在 backend/app/services/ 下）
+    backend_dir = Path(__file__).resolve().parents[2]
+    project_root = backend_dir.parent if backend_dir.name == "backend" else backend_dir
+    local_dir = project_root / LAYOUTLMV3_LOCAL_DIR
+    if local_dir.exists():
+        return str(local_dir)
+    return LAYOUTLMV3_HF_ID
 
 
 class RegionType(str, Enum):
@@ -83,7 +109,7 @@ class LayoutAnalyzer:
         use_gpu: bool = False,
         confidence_threshold: float = 0.5
     ):
-        self.model_path = model_path
+        self.model_path = _resolve_layoutlmv3_path(model_path)
         self.use_gpu = use_gpu
         self.confidence_threshold = confidence_threshold
         self._model = None

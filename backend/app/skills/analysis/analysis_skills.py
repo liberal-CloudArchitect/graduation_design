@@ -46,9 +46,9 @@ async def build_knowledge_graph(text: str, max_entities: int = 30):
         from app.core.config import settings
 
         llm = ChatOpenAI(
-            model=getattr(settings, "LLM_MODEL", "gpt-3.5-turbo"),
-            openai_api_key=getattr(settings, "OPENROUTER_API_KEY", ""),
-            openai_api_base=getattr(settings, "OPENROUTER_BASE_URL", ""),
+            model=settings.OPENROUTER_MODEL,
+            api_key=settings.OPENROUTER_API_KEY,
+            base_url=settings.OPENROUTER_BASE_URL,
             temperature=0,
         )
 
@@ -95,24 +95,115 @@ async def build_knowledge_graph(text: str, max_entities: int = 30):
 
 
 async def _build_kg_fallback(text: str, max_entities: int = 30) -> dict:
-    """降级知识图谱构建：基于关键词共现"""
+    """降级知识图谱构建：优先使用 LLM 提取实体关系，其次基于关键词共现"""
+    
+    # 优先尝试 LLM 提取
+    try:
+        result = await _build_kg_with_llm(text, max_entities)
+        if result and result.get("node_count", 0) > 0:
+            return result
+    except Exception as e:
+        logger.warning(f"LLM-based KG extraction failed: {e}, falling back to regex")
+    
+    # 最终回退：正则 + 共现
+    return _build_kg_regex(text, max_entities)
+
+
+async def _build_kg_with_llm(text: str, max_entities: int = 30) -> dict:
+    """使用 LLM 从文本中提取实体和关系"""
+    from langchain_openai import ChatOpenAI
+    from app.core.config import settings
+    
+    llm = ChatOpenAI(
+        model=settings.OPENROUTER_MODEL,
+        api_key=settings.OPENROUTER_API_KEY,
+        base_url=settings.OPENROUTER_BASE_URL,
+        temperature=0,
+    )
+    
+    truncated_text = text[:4000] if len(text) > 4000 else text
+    
+    prompt = f"""请从以下学术文本中提取关键实体和它们之间的关系。
+
+要求：
+1. 提取最多 {max_entities} 个重要实体（概念、技术、方法、模型等）
+2. 识别实体之间的关系（如：使用、改进、基于、对比、包含等）
+3. 严格按照 JSON 格式输出，不要输出其他内容
+
+输出格式：
+{{"nodes": [{{"id": "实体名称", "type": "实体类型"}}], "edges": [{{"source": "源实体", "target": "目标实体", "relation": "关系类型"}}]}}
+
+实体类型包括：concept, method, model, dataset, metric, task, tool, person, organization
+关系类型包括：uses, improves, based_on, compared_with, contains, part_of, evaluates, produces, applied_to
+
+文本：
+{truncated_text}
+
+请仅输出 JSON，不要添加其他说明文字："""
+    
+    response = await llm.ainvoke(prompt)
+    content = response.content.strip()
+    
+    # 提取 JSON（兼容 LLM 可能添加的 markdown 代码块）
+    import re
+    json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', content, re.DOTALL)
+    if json_match:
+        content = json_match.group(1)
+    
+    # 解析 JSON
+    result = json.loads(content)
+    
+    nodes = result.get("nodes", [])[:max_entities]
+    edges = result.get("edges", [])
+    
+    # 验证边的源和目标都在节点中
+    node_ids = {n["id"] for n in nodes}
+    valid_edges = [
+        e for e in edges
+        if e.get("source") in node_ids and e.get("target") in node_ids
+    ]
+    
+    return {
+        "nodes": nodes,
+        "edges": valid_edges,
+        "node_count": len(nodes),
+        "edge_count": len(valid_edges),
+        "method": "llm_extraction",
+    }
+
+
+def _build_kg_regex(text: str, max_entities: int = 30) -> dict:
+    """最终回退：基于关键词共现的知识图谱构建"""
     import re
     from collections import Counter
 
-    # 提取可能的实体（大写开头的连续词组或中文名词）
-    # 英文实体
-    en_entities = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', text)
-    # 中文关键短语（简单启发式：2-6字的连续中文）
-    zh_entities = re.findall(r'[\u4e00-\u9fff]{2,6}', text)
+    # 提取可能的实体
+    # 英文实体: 包括缩写词（全大写）和标题格式词组
+    en_entities = re.findall(r'\b[A-Z][A-Za-z]*(?:[-][A-Za-z]+)*(?:\s+[A-Z][A-Za-z]*)*\b', text)
+    # 英文缩写（如 BERT, GPT, NLP）
+    en_acronyms = re.findall(r'\b[A-Z]{2,}(?:-\d+)?(?:\b)', text)
+    # 中文关键短语（2-8字的连续中文）
+    zh_entities = re.findall(r'[\u4e00-\u9fff]{2,8}', text)
 
-    all_entities = en_entities + zh_entities
+    # 过滤常见停用词
+    stop_words = {
+        "The", "This", "That", "These", "Those", "With", "From", "However",
+        "Although", "Because", "Table", "Figure", "Section", "Chapter",
+        "Abstract", "Introduction", "Conclusion", "References", "Page",
+        "的", "了", "是", "在", "有", "和", "与", "及", "或", "等",
+        "对", "为", "从", "到", "中", "上", "下", "也", "但", "并",
+        "这个", "那个", "一个", "我们", "他们", "可以", "已经", "进行",
+        "使用", "通过", "其中", "以及", "由于", "因此", "然而",
+    }
+    
+    all_entities = [e for e in (en_entities + en_acronyms + zh_entities) if e not in stop_words and len(e) > 1]
     entity_counts = Counter(all_entities)
     top_entities = [e for e, _ in entity_counts.most_common(max_entities)]
 
     if not top_entities:
         return {"nodes": [], "edges": [], "node_count": 0, "edge_count": 0}
 
-    # 构建共现关系（同一句中出现）
+    # 构建共现关系（同一句中出现的实体）
     sentences = re.split(r'[.!?。！？\n]', text)
     edges = []
     edge_set = set()

@@ -83,16 +83,77 @@ class RAGEngine:
             self.embedder = MockEmbedder()
     
     async def _init_milvus(self):
-        """初始化Milvus客户端"""
+        """初始化Milvus客户端，并确保集合存在"""
         try:
             from pymilvus import MilvusClient
             self.milvus = MilvusClient(
                 uri=f"http://{settings.MILVUS_HOST}:{settings.MILVUS_PORT}"
             )
             logger.info(f"Connected to Milvus at {settings.MILVUS_HOST}:{settings.MILVUS_PORT}")
+            
+            # 确保 paper_vectors 集合存在
+            await self._ensure_paper_collection()
         except Exception as e:
             logger.warning(f"Failed to connect Milvus: {e}")
             self.milvus = None
+
+    async def _ensure_paper_collection(self):
+        """确保 paper_vectors 集合存在"""
+        if not self.milvus:
+            return
+        
+        collection_name = "paper_vectors"
+        try:
+            collections = self.milvus.list_collections()
+            if collection_name in collections:
+                logger.info(f"Milvus collection '{collection_name}' already exists")
+                return
+            
+            # 使用 ORM API 创建集合
+            from pymilvus import (
+                FieldSchema, CollectionSchema, DataType,
+                Collection, connections
+            )
+            
+            alias = "default"
+            if not connections.has_connection(alias):
+                connections.connect(
+                    alias=alias,
+                    host=settings.MILVUS_HOST,
+                    port=settings.MILVUS_PORT
+                )
+            
+            fields = [
+                FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=64),
+                FieldSchema(name="paper_id", dtype=DataType.INT64),
+                FieldSchema(name="chunk_index", dtype=DataType.INT64),
+                FieldSchema(name="project_id", dtype=DataType.INT64),
+                FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=1024),
+            ]
+            
+            schema = CollectionSchema(
+                fields=fields,
+                description="Paper chunk vectors for RAG",
+                enable_dynamic_field=True
+            )
+            
+            collection = Collection(
+                name=collection_name,
+                schema=schema,
+                using=alias
+            )
+            
+            index_params = {
+                "index_type": "IVF_FLAT",
+                "metric_type": "COSINE",
+                "params": {"nlist": 128}
+            }
+            collection.create_index(field_name="vector", index_params=index_params)
+            collection.load()
+            
+            logger.info(f"Created Milvus collection: {collection_name}")
+        except Exception as e:
+            logger.error(f"Failed to ensure paper_vectors collection: {e}")
     
     async def _init_llm(self):
         """初始化LLM (使用OpenRouter)"""
@@ -313,13 +374,24 @@ class RAGEngine:
         self, 
         search_results: List[Dict]
     ) -> List[Dict[str, Any]]:
-        """从MongoDB获取文档内容"""
+        """从MongoDB获取文档内容
+        
+        兼容 pymilvus MilvusClient 返回格式:
+        - pymilvus 2.3.x: {"id": ..., "distance": ..., "entity": {"paper_id": ..., "chunk_index": ...}}
+        - pymilvus 2.4+:  {"id": ..., "distance": ..., "paper_id": ..., "chunk_index": ...}
+        """
         from app.services.mongodb_service import mongodb_service
         
         docs = []
         for result in search_results:
-            paper_id = result.get("paper_id")
-            chunk_index = result.get("chunk_index")
+            # 兼容两种 pymilvus 返回格式: 嵌套 entity 或扁平字段
+            entity = result.get("entity", result)
+            paper_id = entity.get("paper_id")
+            chunk_index = entity.get("chunk_index")
+            
+            if paper_id is None or chunk_index is None:
+                logger.warning(f"Milvus result missing paper_id/chunk_index: {result}")
+                continue
             
             # 尝试从MongoDB获取
             chunk = await mongodb_service.get_chunk_by_index(paper_id, chunk_index)
@@ -334,12 +406,17 @@ class RAGEngine:
                 })
             else:
                 # 回退：使用内存缓存中的数据
-                docs.append({
-                    "paper_id": paper_id,
-                    "chunk_index": chunk_index,
-                    "text": self._chunk_cache.get(f"{paper_id}_{chunk_index}", "[内容未找到]"),
-                    "score": result.get("distance", 0)
-                })
+                cache_key = f"{paper_id}_{chunk_index}"
+                cached_text = self._chunk_cache.get(cache_key, "")
+                if cached_text:
+                    docs.append({
+                        "paper_id": paper_id,
+                        "chunk_index": chunk_index,
+                        "text": cached_text,
+                        "score": result.get("distance", 0)
+                    })
+                else:
+                    logger.warning(f"Chunk not found: paper_id={paper_id}, chunk_index={chunk_index}")
         
         return docs
     

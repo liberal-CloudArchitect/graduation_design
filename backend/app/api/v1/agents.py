@@ -480,26 +480,56 @@ async def build_project_knowledge_graph(
         )
     
     try:
-        # 1. 从 MongoDB 获取项目文献的文本摘要
-        text_parts = []
-        if rag_engine and hasattr(rag_engine, '_mongodb'):
-            try:
-                from app.services.mongodb_service import mongodb_service
-                chunks = await mongodb_service.get_project_chunks(
-                    request.project_id, limit=20
-                )
-                text_parts = [c.get("content", "") for c in chunks if c.get("content")]
-            except Exception as e:
-                logger.warning(f"Failed to fetch chunks from MongoDB: {e}")
+        from app.models.paper import Paper
+        from app.services.mongodb_service import mongodb_service
         
-        # 如果没有从 MongoDB 取到，尝试从 Milvus 搜索
-        if not text_parts and rag_engine:
-            try:
-                results = await rag_engine.search("research methodology findings", request.project_id, top_k=10)
-                docs = await rag_engine._fetch_documents(results)
-                text_parts = [d.get("text", "") for d in docs if d.get("text")]
-            except Exception:
-                pass
+        # 1. 从 PostgreSQL 获取项目下的所有文献
+        papers_result = await db.execute(
+            select(Paper).where(
+                Paper.project_id == request.project_id,
+                Paper.status == "completed"
+            )
+        )
+        papers = papers_result.scalars().all()
+        
+        if not papers:
+            return {
+                "nodes": [],
+                "edges": [],
+                "node_count": 0,
+                "edge_count": 0,
+                "message": "项目中没有已处理完成的文献"
+            }
+        
+        # 2. 从 MongoDB (或内存回退) 获取各文献的文本分块
+        paper_ids = [p.id for p in papers]
+        text_parts = []
+        
+        chunks = await mongodb_service.get_project_chunks(
+            paper_ids=paper_ids,
+            limit_per_paper=10,
+            limit=30
+        )
+        text_parts = [c.get("text", "") for c in chunks if c.get("text")]
+        
+        # 如果 MongoDB 没数据，尝试从 RAG 引擎的内存缓存获取
+        if not text_parts and rag_engine and rag_engine._chunk_cache:
+            for paper_id in paper_ids:
+                for i in range(20):
+                    cache_key = f"{paper_id}_{i}"
+                    cached = rag_engine._chunk_cache.get(cache_key)
+                    if cached:
+                        text_parts.append(cached)
+                    else:
+                        break
+                    if len(text_parts) >= 30:
+                        break
+        
+        # 如果仍无数据，尝试用论文摘要
+        if not text_parts:
+            for paper in papers:
+                if paper.abstract:
+                    text_parts.append(paper.abstract)
         
         if not text_parts:
             return {
@@ -510,10 +540,11 @@ async def build_project_knowledge_graph(
                 "message": "项目中未找到文本内容"
             }
         
-        # 2. 合并文本（截断到合理长度）
-        combined_text = "\n\n".join(text_parts)[:6000]
+        # 3. 合并文本（截断到合理长度）
+        combined_text = "\n\n".join(text_parts)[:8000]
+        logger.info(f"Knowledge graph: collected {len(text_parts)} text parts, total {len(combined_text)} chars")
         
-        # 3. 调用 build_knowledge_graph Skill
+        # 4. 调用 build_knowledge_graph Skill
         kg_result = await agent_coordinator.execute_skill(
             skill_name="build_knowledge_graph",
             text=combined_text,
