@@ -9,7 +9,7 @@ import {
     FileTextOutlined, BarChartOutlined, ShareAltOutlined,
     LineChartOutlined, EditOutlined, UploadOutlined,
     DeleteOutlined, ArrowLeftOutlined, ReloadOutlined,
-    EyeOutlined, LinkOutlined, SyncOutlined
+    EyeOutlined, LinkOutlined, SyncOutlined, ExperimentOutlined
 } from '@ant-design/icons';
 import { projectsApi } from '../../../services/projects';
 import { papersApi } from '../../../services/papers';
@@ -18,6 +18,7 @@ import Visualization from '../Visualization';
 import KnowledgeGraph from '../KnowledgeGraph';
 import TrendAnalysis from '../TrendAnalysis';
 import WritingAssistant from '../WritingAssistant';
+import MemoryDashboard from '../MemoryDashboard';
 import './index.css';
 
 const { Title, Text } = Typography;
@@ -270,6 +271,11 @@ const ProjectDetail: React.FC = () => {
             key: 'writing',
             label: <span><EditOutlined /> 写作辅助</span>,
             children: <WritingAssistant projectId={projectId} />,
+        },
+        {
+            key: 'memory',
+            label: <span><ExperimentOutlined /> 记忆系统</span>,
+            children: <MemoryDashboard projectId={projectId} />,
         },
     ];
 

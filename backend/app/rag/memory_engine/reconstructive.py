@@ -262,7 +262,11 @@ class ReconstructiveMemory:
         exclude_ids: set
     ) -> List[MemoryNode]:
         """
-        查找时间相邻的记忆
+        查找时间相邻的记忆（基于 Milvus 时间戳范围过滤）
+        
+        使用种子记忆的 timestamp ± TEMPORAL_WINDOW 构建时间窗口，
+        通过 Milvus 标量过滤检索同一时间区间内的记忆，
+        实现真正的时序关联扩展（而非语义重复检索）。
         
         Args:
             seed: 种子记忆
@@ -272,15 +276,79 @@ class ReconstructiveMemory:
         Returns:
             时间相邻的记忆列表
         """
-        # 简化实现：使用种子内容重新检索
-        # 实际生产中可以使用Milvus的时间范围过滤
-        neighbors = await self.memory_engine.retrieve(
-            query=seed.content[:100],  # 使用部分内容作为查询
-            project_id=project_id,
-            top_k=3
-        )
+        # 检查底层引擎是否具备 Milvus 连接
+        if not hasattr(self.memory_engine, 'milvus') or not self.memory_engine.milvus:
+            # 无 Milvus 连接时降级：使用语义检索
+            neighbors = await self.memory_engine.retrieve(
+                query=seed.content[:100],
+                project_id=project_id,
+                top_k=3
+            )
+            return [m for m in neighbors if m.id not in exclude_ids]
         
-        return [m for m in neighbors if m.id not in exclude_ids]
+        try:
+            # 构建时间窗口
+            t_min = seed.timestamp - self.TEMPORAL_WINDOW
+            t_max = seed.timestamp + self.TEMPORAL_WINDOW
+            
+            # 构建 Milvus 标量过滤表达式
+            filter_parts = [
+                f"timestamp >= {t_min}",
+                f"timestamp <= {t_max}",
+            ]
+            if project_id is not None:
+                filter_parts.append(f"project_id == {project_id}")
+            
+            filter_expr = " && ".join(filter_parts)
+            
+            # 使用 Milvus query（标量过滤，非向量搜索）
+            results = self.memory_engine.milvus.query(
+                collection_name=self.memory_engine.COLLECTION_NAME,
+                filter=filter_expr,
+                output_fields=[
+                    "id", "content", "timestamp", "importance",
+                    "access_count", "memory_type", "agent_source", "project_id"
+                ],
+                limit=self.MAX_EXPAND_RESULTS + len(exclude_ids)
+            )
+            
+            # 转换为 MemoryNode，排除已有 ID
+            neighbors = []
+            for r in (results or []):
+                rid = r.get("id", "")
+                if rid in exclude_ids:
+                    continue
+                neighbors.append(MemoryNode(
+                    id=rid,
+                    content=r.get("content", ""),
+                    embedding=[],
+                    timestamp=r.get("timestamp", 0),
+                    importance=r.get("importance", 1.0),
+                    access_count=r.get("access_count", 0),
+                    memory_type=r.get("memory_type", "dynamic"),
+                    relations={},
+                    agent_source=r.get("agent_source", "qa_agent"),
+                    project_id=r.get("project_id", 0),
+                ))
+            
+            # 按与种子时间的距离排序（最近优先）
+            neighbors.sort(key=lambda m: abs(m.timestamp - seed.timestamp))
+            
+            logger.debug(
+                f"Temporal neighbors: found {len(neighbors)} within "
+                f"[{t_min}, {t_max}] for seed {seed.id[:8]}"
+            )
+            return neighbors[:self.MAX_EXPAND_RESULTS]
+            
+        except Exception as e:
+            logger.warning(f"Temporal neighbor search failed, falling back: {e}")
+            # 降级到语义检索
+            neighbors = await self.memory_engine.retrieve(
+                query=seed.content[:100],
+                project_id=project_id,
+                top_k=3
+            )
+            return [m for m in neighbors if m.id not in exclude_ids]
     
     async def _reconstruct_with_llm(
         self,

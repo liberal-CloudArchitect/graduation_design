@@ -3,7 +3,7 @@ API v1 路由注册
 """
 from fastapi import APIRouter
 
-from app.api.v1 import auth, projects, papers, rag, external, agents, trends, writing
+from app.api.v1 import auth, projects, papers, rag, external, agents, trends, writing, memory
 
 
 api_router = APIRouter()
@@ -55,4 +55,10 @@ api_router.include_router(
     writing.router,
     prefix="/writing",
     tags=["写作辅助"]
+)
+
+api_router.include_router(
+    memory.router,
+    prefix="/memory",
+    tags=["记忆系统"]
 )

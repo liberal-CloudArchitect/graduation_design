@@ -357,6 +357,84 @@ class DynamicMemoryEngine(BaseMemoryEngine):
             logger.error(f"Failed to delete memory: {e}")
             return False
     
+    async def list_memories(
+        self,
+        project_id: Optional[int] = None,
+        memory_type: Optional[str] = None,
+        agent_source: Optional[str] = None,
+        offset: int = 0,
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """
+        分页列出记忆条目（基于标量过滤，非向量搜索）
+        
+        Args:
+            project_id: 按项目筛选
+            memory_type: 按类型筛选 (dynamic/reconstructive/cross_memory)
+            agent_source: 按来源Agent筛选
+            offset: 分页偏移
+            limit: 每页数量
+            
+        Returns:
+            {"items": [...], "total": int}
+        """
+        if not self.milvus:
+            return {"items": [], "total": 0}
+        
+        try:
+            # 构建过滤条件
+            filters = []
+            if project_id is not None:
+                filters.append(f"project_id == {project_id}")
+            if memory_type:
+                filters.append(f'memory_type == "{memory_type}"')
+            if agent_source:
+                filters.append(f'agent_source == "{agent_source}"')
+            
+            filter_expr = " && ".join(filters) if filters else ""
+            
+            # 查询总量（用较大limit估算）
+            count_results = self.milvus.query(
+                collection_name=self.COLLECTION_NAME,
+                filter=filter_expr if filter_expr else None,
+                output_fields=["id"],
+                limit=10000
+            )
+            total = len(count_results) if count_results else 0
+            
+            # 查询分页数据
+            results = self.milvus.query(
+                collection_name=self.COLLECTION_NAME,
+                filter=filter_expr if filter_expr else None,
+                output_fields=[
+                    "id", "content", "timestamp", "importance",
+                    "access_count", "memory_type", "agent_source", "project_id"
+                ],
+                limit=limit + offset
+            )
+            
+            # 手动分页（Milvus query 不支持 offset）
+            paged = results[offset:offset + limit] if results else []
+            
+            items = []
+            for entity in paged:
+                items.append({
+                    "id": entity.get("id", ""),
+                    "content": entity.get("content", ""),
+                    "timestamp": entity.get("timestamp", 0),
+                    "importance": entity.get("importance", 1.0),
+                    "access_count": entity.get("access_count", 0),
+                    "memory_type": entity.get("memory_type", "dynamic"),
+                    "agent_source": entity.get("agent_source", "qa_agent"),
+                    "project_id": entity.get("project_id", 0),
+                })
+            
+            return {"items": items, "total": total}
+            
+        except Exception as e:
+            logger.error(f"Failed to list memories: {e}")
+            return {"items": [], "total": 0}
+    
     async def get_stats(self) -> Dict[str, Any]:
         """获取记忆系统统计信息"""
         if not self.milvus:
@@ -364,10 +442,32 @@ class DynamicMemoryEngine(BaseMemoryEngine):
         
         try:
             stats = self.milvus.get_collection_stats(self.COLLECTION_NAME)
+            
+            # 获取按类型的分布
+            type_breakdown = {}
+            agent_breakdown = {}
+            
+            try:
+                all_items = self.milvus.query(
+                    collection_name=self.COLLECTION_NAME,
+                    filter=None,
+                    output_fields=["memory_type", "agent_source"],
+                    limit=10000
+                )
+                for item in (all_items or []):
+                    mt = item.get("memory_type", "unknown")
+                    ag = item.get("agent_source", "unknown")
+                    type_breakdown[mt] = type_breakdown.get(mt, 0) + 1
+                    agent_breakdown[ag] = agent_breakdown.get(ag, 0) + 1
+            except Exception:
+                pass
+            
             return {
                 "status": "connected",
                 "collection": self.COLLECTION_NAME,
-                "row_count": stats.get("row_count", 0)
+                "row_count": stats.get("row_count", 0),
+                "type_breakdown": type_breakdown,
+                "agent_breakdown": agent_breakdown,
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}

@@ -51,6 +51,8 @@ export interface Message {
     content: string;
     created_at: string;
     references?: Reference[];
+    metadata?: Record<string, any>;
+    agent_type?: string;
 }
 
 export interface Conversation {

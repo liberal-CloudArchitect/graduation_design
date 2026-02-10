@@ -240,6 +240,10 @@ async def agent_stream(
                 # 3. 非 Retriever Agent（或 LLM 不可用时）：
                 #    先执行 Agent 获取完整结果，再逐块流式发送
                 try:
+                    # 发送处理中状态
+                    status_label = agent_labels.get(agent_type_used, agent_type_used)
+                    yield f"data: {json.dumps({'type': 'status', 'data': {'stage': 'processing', 'message': f'{status_label}正在处理...'}}, ensure_ascii=False)}\n\n"
+                    
                     response = await agent_coordinator.process(
                         query=request.query,
                         project_id=request.project_id,
@@ -255,6 +259,9 @@ async def agent_stream(
                     # 发送引用
                     if references_data:
                         yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
+                    
+                    # 发送生成中状态
+                    yield f"data: {json.dumps({'type': 'status', 'data': {'stage': 'generating', 'message': '正在生成回复...'}}, ensure_ascii=False)}\n\n"
                     
                     # 逐块发送内容（模拟流式效果）
                     chunk_size = 20  # 每块约20字符
@@ -273,15 +280,22 @@ async def agent_stream(
             if metadata_extra:
                 yield f"data: {json.dumps({'type': 'metadata', 'data': metadata_extra}, ensure_ascii=False)}\n\n"
             
-            # 5. 保存对话到数据库
+            # 5. 保存对话到数据库（含元数据用于前端重渲染图表等）
             try:
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": full_answer,
+                    "agent_type": agent_type_used,
+                }
+                if metadata_extra:
+                    assistant_msg["metadata"] = metadata_extra
+                
                 conversation = Conversation(
                     user_id=current_user.id,
                     project_id=request.project_id,
                     messages=[
                         {"role": "user", "content": request.query},
-                        {"role": "assistant", "content": full_answer,
-                         "agent_type": agent_type_used}
+                        assistant_msg
                     ]
                 )
                 db.add(conversation)
@@ -426,6 +440,107 @@ async def agent_search(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"搜索失败: {str(e)}"
+        )
+
+
+# ============ Knowledge Graph ============
+
+class KGRequest(BaseModel):
+    """知识图谱构建请求"""
+    project_id: int
+    max_entities: int = 30
+
+
+@router.post("/knowledge-graph")
+async def build_project_knowledge_graph(
+    request: KGRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    基于项目文献内容构建知识图谱
+    
+    从项目中的 PDF 文本中提取实体和关系，
+    返回 G6 兼容的 nodes/edges 格式。
+    """
+    if not agent_coordinator._initialized:
+        await agent_coordinator.initialize(rag_engine)
+    
+    # 验证项目权限
+    result = await db.execute(
+        select(Project).where(
+            Project.id == request.project_id,
+            Project.user_id == current_user.id
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="项目不存在"
+        )
+    
+    try:
+        # 1. 从 MongoDB 获取项目文献的文本摘要
+        text_parts = []
+        if rag_engine and hasattr(rag_engine, '_mongodb'):
+            try:
+                from app.services.mongodb_service import mongodb_service
+                chunks = await mongodb_service.get_project_chunks(
+                    request.project_id, limit=20
+                )
+                text_parts = [c.get("content", "") for c in chunks if c.get("content")]
+            except Exception as e:
+                logger.warning(f"Failed to fetch chunks from MongoDB: {e}")
+        
+        # 如果没有从 MongoDB 取到，尝试从 Milvus 搜索
+        if not text_parts and rag_engine:
+            try:
+                results = await rag_engine.search("research methodology findings", request.project_id, top_k=10)
+                docs = await rag_engine._fetch_documents(results)
+                text_parts = [d.get("text", "") for d in docs if d.get("text")]
+            except Exception:
+                pass
+        
+        if not text_parts:
+            return {
+                "nodes": [],
+                "edges": [],
+                "node_count": 0,
+                "edge_count": 0,
+                "message": "项目中未找到文本内容"
+            }
+        
+        # 2. 合并文本（截断到合理长度）
+        combined_text = "\n\n".join(text_parts)[:6000]
+        
+        # 3. 调用 build_knowledge_graph Skill
+        kg_result = await agent_coordinator.execute_skill(
+            skill_name="build_knowledge_graph",
+            text=combined_text,
+            max_entities=request.max_entities,
+        )
+        
+        if kg_result.get("success"):
+            data = kg_result.get("data", {})
+            return {
+                "nodes": data.get("nodes", []),
+                "edges": data.get("edges", []),
+                "node_count": data.get("node_count", 0),
+                "edge_count": data.get("edge_count", 0),
+            }
+        else:
+            return {
+                "nodes": [],
+                "edges": [],
+                "node_count": 0,
+                "edge_count": 0,
+                "error": kg_result.get("error", "构建失败")
+            }
+    except Exception as e:
+        logger.error(f"Knowledge graph build failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"知识图谱构建失败: {str(e)}"
         )
 
 

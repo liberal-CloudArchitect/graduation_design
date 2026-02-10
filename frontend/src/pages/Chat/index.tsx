@@ -1,4 +1,4 @@
-// 智能对话页面 - 含对话历史侧栏 + Agent Coordinator 智能路由
+// 智能对话页面 - 含对话历史侧栏 + Agent Coordinator 智能路由 + 图表/KG 渲染
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import {
@@ -8,12 +8,14 @@ import {
 import {
     SendOutlined, RobotOutlined, UserOutlined, FileTextOutlined,
     PlusOutlined, DeleteOutlined, HistoryOutlined,
-    SearchOutlined, BarChartOutlined, EditOutlined, BookOutlined
+    SearchOutlined, BarChartOutlined, EditOutlined, BookOutlined,
+    LoadingOutlined
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import { agentsApi } from '../../services/agents';
 import { ragApi } from '../../services/rag';
 import { projectsApi } from '../../services/projects';
+import ChatChartRenderer from '../../components/ChatChartRenderer';
 import type { Project, Message, Reference, Conversation } from '../../types/models';
 import './index.css';
 
@@ -27,6 +29,70 @@ const AGENT_CONFIG: Record<string, { icon: React.ReactNode; color: string; label
     writer_agent: { icon: <EditOutlined />, color: 'purple', label: '写作辅助' },
     search_agent: { icon: <SearchOutlined />, color: 'orange', label: '学术搜索' },
 };
+
+/** 斜杠命令定义 */
+interface SlashCommand {
+    command: string;
+    label: string;
+    description: string;
+    agent_type: string;
+    icon: React.ReactNode;
+    color: string;
+    params?: Record<string, any>;
+}
+
+const SLASH_COMMANDS: SlashCommand[] = [
+    {
+        command: '/analyze',
+        label: '趋势分析',
+        description: '分析关键词、时间线、热点、突现词等',
+        agent_type: 'analyzer_agent',
+        icon: <BarChartOutlined />,
+        color: 'green',
+    },
+    {
+        command: '/extract table',
+        label: '提取表格',
+        description: '从 PDF 文献中提取结构化表格',
+        agent_type: 'analyzer_agent',
+        icon: <BarChartOutlined />,
+        color: 'green',
+        params: { analysis_type: 'table_extraction' },
+    },
+    {
+        command: '/build kg',
+        label: '构建知识图谱',
+        description: '从文献中提取实体和关系',
+        agent_type: 'analyzer_agent',
+        icon: <BarChartOutlined />,
+        color: 'green',
+        params: { analysis_type: 'knowledge_graph' },
+    },
+    {
+        command: '/write',
+        label: '写作辅助',
+        description: '生成大纲、综述、润色等',
+        agent_type: 'writer_agent',
+        icon: <EditOutlined />,
+        color: 'purple',
+    },
+    {
+        command: '/search',
+        label: '学术搜索',
+        description: '搜索最新学术文献',
+        agent_type: 'search_agent',
+        icon: <SearchOutlined />,
+        color: 'orange',
+    },
+    {
+        command: '/retrieve',
+        label: '文献检索',
+        description: '从已上传的文献中检索相关内容',
+        agent_type: 'retriever_agent',
+        icon: <BookOutlined />,
+        color: 'blue',
+    },
+];
 
 const ChatPage: React.FC = () => {
     const { projectId: routeProjectId } = useParams<{ projectId: string }>();
@@ -46,10 +112,27 @@ const ChatPage: React.FC = () => {
     const [routingAgent, setRoutingAgent] = useState<string | null>(null);
     const [routingLabel, setRoutingLabel] = useState<string | null>(null);
 
+    // Status message for intermediate agent stages
+    const [statusMessage, setStatusMessage] = useState<string | null>(null);
+
     // Conversation history state
     const [conversations, setConversations] = useState<Conversation[]>([]);
     const [activeConversationId, setActiveConversationId] = useState<number | null>(null);
     const [conversationsLoading, setConversationsLoading] = useState(false);
+
+    // Ref to accumulate metadata during streaming
+    const pendingMetadataRef = useRef<Record<string, any> | null>(null);
+
+    // Slash command state
+    const [showSlashMenu, setShowSlashMenu] = useState(false);
+    const [slashFilter, setSlashFilter] = useState('');
+    const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+    const filteredCommands = SLASH_COMMANDS.filter(
+        (cmd) =>
+            cmd.command.includes(slashFilter.toLowerCase()) ||
+            cmd.label.includes(slashFilter) ||
+            cmd.description.includes(slashFilter)
+    );
 
     useEffect(() => {
         loadProjects();
@@ -87,6 +170,7 @@ const ChatPage: React.FC = () => {
         setReferences([]);
         setRoutingAgent(null);
         setRoutingLabel(null);
+        setStatusMessage(null);
         if (conv.project_id) {
             setSelectedProject(conv.project_id);
         }
@@ -98,6 +182,7 @@ const ChatPage: React.FC = () => {
         setReferences([]);
         setRoutingAgent(null);
         setRoutingLabel(null);
+        setStatusMessage(null);
     };
 
     const handleDeleteConversation = async (convId: number) => {
@@ -117,8 +202,52 @@ const ChatPage: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
+    // Parse slash commands from input
+    const parseSlashCommand = (text: string): { query: string; agent_type?: string; params?: Record<string, any> } => {
+        const trimmed = text.trim();
+        for (const cmd of SLASH_COMMANDS) {
+            if (trimmed.toLowerCase().startsWith(cmd.command)) {
+                const query = trimmed.slice(cmd.command.length).trim();
+                return {
+                    query: query || `${cmd.label}`,
+                    agent_type: cmd.agent_type,
+                    params: cmd.params || {},
+                };
+            }
+        }
+        return { query: trimmed };
+    };
+
+    // Handle slash command selection from the menu
+    const handleSelectSlashCommand = (cmd: SlashCommand) => {
+        setInput(cmd.command + ' ');
+        setShowSlashMenu(false);
+        setSlashFilter('');
+        setSlashSelectedIndex(0);
+    };
+
+    // Handle input change - detect slash commands
+    const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const val = e.target.value;
+        setInput(val);
+
+        if (val.startsWith('/')) {
+            setShowSlashMenu(true);
+            setSlashFilter(val);
+            setSlashSelectedIndex(0);
+        } else {
+            setShowSlashMenu(false);
+            setSlashFilter('');
+        }
+    };
+
     const handleSend = async () => {
         if (!input.trim() || loading) return;
+
+        setShowSlashMenu(false);
+
+        // Parse slash commands
+        const parsed = parseSlashCommand(input);
 
         const userMessage: Message = {
             role: 'user',
@@ -127,24 +256,34 @@ const ChatPage: React.FC = () => {
         };
 
         setMessages((prev) => [...prev, userMessage]);
-        const currentInput = input;
         setInput('');
         setLoading(true);
         setReferences([]);
         setRoutingAgent(null);
         setRoutingLabel(null);
+        setStatusMessage(null);
+        pendingMetadataRef.current = null;
 
         let assistantContent = '';
 
         try {
             await agentsApi.stream(
-                { query: currentInput, project_id: selectedProject },
+                {
+                    query: parsed.query,
+                    project_id: selectedProject,
+                    agent_type: parsed.agent_type,
+                    params: parsed.params || {},
+                },
                 {
                     onRouting: (info) => {
                         setRoutingAgent(info.agent_type);
                         setRoutingLabel(info.label);
                     },
+                    onStatus: (info) => {
+                        setStatusMessage(info.message);
+                    },
                     onChunk: (chunk) => {
+                        setStatusMessage(null); // clear status once content starts
                         assistantContent += chunk;
                         setMessages((prev) => {
                             const updated = [...prev];
@@ -164,15 +303,36 @@ const ChatPage: React.FC = () => {
                     onReferences: (refs) => {
                         setReferences(refs);
                     },
-                    onMetadata: (_metadata) => {
-                        // 可在此处理图表数据等元信息，暂存备用
+                    onMetadata: (metadata) => {
+                        // Store metadata and attach to the current assistant message
+                        pendingMetadataRef.current = metadata;
+                        setMessages((prev) => {
+                            const updated = [...prev];
+                            const lastMsg = updated[updated.length - 1];
+                            if (lastMsg?.role === 'assistant') {
+                                lastMsg.metadata = metadata;
+                            }
+                            return [...updated];
+                        });
                     },
                     onDone: (data) => {
                         setLoading(false);
+                        setStatusMessage(null);
+                        // Attach final metadata if not yet attached
+                        if (pendingMetadataRef.current) {
+                            setMessages((prev) => {
+                                const updated = [...prev];
+                                const lastMsg = updated[updated.length - 1];
+                                if (lastMsg?.role === 'assistant') {
+                                    lastMsg.metadata = pendingMetadataRef.current!;
+                                    lastMsg.agent_type = data.agent_type;
+                                }
+                                return [...updated];
+                            });
+                        }
                         if (data.conversation_id) {
                             setActiveConversationId(data.conversation_id);
                         }
-                        // Refresh conversation list to include new conversation
                         loadConversations();
                     },
                     onError: (error) => {
@@ -185,15 +345,39 @@ const ChatPage: React.FC = () => {
                             },
                         ]);
                         setLoading(false);
+                        setStatusMessage(null);
                     },
                 }
             );
         } catch (error) {
             setLoading(false);
+            setStatusMessage(null);
         }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (showSlashMenu && filteredCommands.length > 0) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                setSlashSelectedIndex((prev) => Math.min(prev + 1, filteredCommands.length - 1));
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                setSlashSelectedIndex((prev) => Math.max(prev - 1, 0));
+                return;
+            }
+            if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+                e.preventDefault();
+                handleSelectSlashCommand(filteredCommands[slashSelectedIndex]);
+                return;
+            }
+            if (e.key === 'Escape') {
+                setShowSlashMenu(false);
+                return;
+            }
+        }
+
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSend();
@@ -348,9 +532,13 @@ const ChatPage: React.FC = () => {
                                     />
                                     <div className="message-content">
                                         {msg.role === 'assistant' ? (
-                                            <div className="message-text markdown-body">
-                                                <ReactMarkdown>{msg.content}</ReactMarkdown>
-                                            </div>
+                                            <>
+                                                <div className="message-text markdown-body">
+                                                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                                                </div>
+                                                {/* Render charts/KG/tables from metadata */}
+                                                {msg.metadata && <ChatChartRenderer metadata={msg.metadata} />}
+                                            </>
                                         ) : (
                                             <Paragraph className="message-text">{msg.content}</Paragraph>
                                         )}
@@ -363,28 +551,71 @@ const ChatPage: React.FC = () => {
                         <div className="message-item assistant">
                             <Avatar icon={<RobotOutlined />} className="message-avatar assistant" />
                             <div className="message-content">
-                                {routingLabel ? (
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                        <Spin size="small" />
-                                        <Text type="secondary" style={{ fontSize: 12 }}>
-                                            {routingLabel}处理中...
-                                        </Text>
-                                    </div>
-                                ) : (
-                                    <Spin size="small" />
-                                )}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <Spin size="small" indicator={<LoadingOutlined spin />} />
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                        {statusMessage || (routingLabel ? `${routingLabel}处理中...` : '思考中...')}
+                                    </Text>
+                                </div>
                             </div>
                         </div>
                     )}
                     <div ref={messagesEndRef} />
                 </div>
 
-                <div className="chat-input-area">
+                <div className="chat-input-area" style={{ position: 'relative' }}>
+                    {/* Slash command autocomplete dropdown */}
+                    {showSlashMenu && filteredCommands.length > 0 && (
+                        <div
+                            className="slash-command-menu"
+                            style={{
+                                position: 'absolute',
+                                bottom: '100%',
+                                left: 0,
+                                right: 0,
+                                background: '#fff',
+                                border: '1px solid #e8e8e8',
+                                borderRadius: 8,
+                                boxShadow: '0 -4px 12px rgba(0,0,0,0.08)',
+                                marginBottom: 4,
+                                maxHeight: 240,
+                                overflow: 'auto',
+                                zIndex: 1000,
+                            }}
+                        >
+                            {filteredCommands.map((cmd, i) => (
+                                <div
+                                    key={cmd.command}
+                                    onClick={() => handleSelectSlashCommand(cmd)}
+                                    style={{
+                                        padding: '8px 12px',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        background: i === slashSelectedIndex ? '#f0f5ff' : 'transparent',
+                                        borderLeft: i === slashSelectedIndex ? '3px solid #667eea' : '3px solid transparent',
+                                    }}
+                                    onMouseEnter={() => setSlashSelectedIndex(i)}
+                                >
+                                    <Tag icon={cmd.icon} color={cmd.color} style={{ margin: 0 }}>
+                                        {cmd.command}
+                                    </Tag>
+                                    <div style={{ flex: 1 }}>
+                                        <Text strong style={{ fontSize: 13 }}>{cmd.label}</Text>
+                                        <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                                            {cmd.description}
+                                        </Text>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                     <TextArea
                         value={input}
-                        onChange={(e) => setInput(e.target.value)}
+                        onChange={handleInputChange}
                         onKeyDown={handleKeyDown}
-                        placeholder="输入您的问题，按 Enter 发送..."
+                        placeholder="输入您的问题，按 Enter 发送... 输入 / 查看快捷命令"
                         autoSize={{ minRows: 1, maxRows: 4 }}
                         disabled={loading}
                     />

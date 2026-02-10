@@ -28,6 +28,8 @@ export interface AnalysisAgentRequest {
 export interface AgentStreamCallbacks {
     /** 路由信息：告知用户当前由哪个 Agent 处理 */
     onRouting?: (info: { agent_type: string; label: string }) => void;
+    /** 中间状态更新（思考中、检索中等） */
+    onStatus?: (info: { stage: string; message: string }) => void;
     /** 流式文本块 */
     onChunk: (chunk: string) => void;
     /** 引用来源 */
@@ -99,6 +101,9 @@ export const agentsApi = {
                         switch (json.type) {
                             case 'routing':
                                 callbacks.onRouting?.(json.data);
+                                break;
+                            case 'status':
+                                callbacks.onStatus?.(json.data);
                                 break;
                             case 'chunk':
                                 callbacks.onChunk(json.data);
