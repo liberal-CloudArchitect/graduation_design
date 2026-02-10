@@ -232,17 +232,25 @@ const Visualization: React.FC<Props> = ({ projectId }) => {
                             onChange={(v) => setChartType(v as string)}
                             style={{ marginBottom: 16 }}
                         />
-                        {chartType === 'wordcloud' && keywords.length > 0 && (
-                            <ReactECharts option={wordCloudOption} style={{ height: 450 }} />
+                        {chartType === 'wordcloud' && (
+                            keywords.length > 0
+                                ? <ReactECharts option={wordCloudOption} style={{ height: 450 }} />
+                                : <Empty description="暂无关键词数据，请确认文献已解析完成" style={{ padding: 80 }} />
                         )}
-                        {chartType === 'bar' && keywords.length > 0 && (
-                            <ReactECharts option={barOption} style={{ height: 450 }} />
+                        {chartType === 'bar' && (
+                            keywords.length > 0
+                                ? <ReactECharts option={barOption} style={{ height: 450 }} />
+                                : <Empty description="暂无关键词数据，请确认文献已解析完成" style={{ padding: 80 }} />
                         )}
-                        {chartType === 'timeline' && timeline.length > 0 && (
-                            <ReactECharts option={timelineOption} style={{ height: 450 }} />
+                        {chartType === 'timeline' && (
+                            timeline.length > 0
+                                ? <ReactECharts option={timelineOption} style={{ height: 450 }} />
+                                : <Empty description="暂无时间趋势数据" style={{ padding: 80 }} />
                         )}
-                        {chartType === 'pie' && distribution.length > 0 && (
-                            <ReactECharts option={pieOption} style={{ height: 450 }} />
+                        {chartType === 'pie' && (
+                            distribution.length > 0
+                                ? <ReactECharts option={pieOption} style={{ height: 450 }} />
+                                : <Empty description="暂无领域分布数据" style={{ padding: 80 }} />
                         )}
                     </Card>
                 </Col>

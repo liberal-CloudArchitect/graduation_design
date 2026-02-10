@@ -34,7 +34,7 @@ class KnowledgeGraphInput(BaseModel):
     description="从非结构化文本中提取实体和关系，构建知识图谱三元组。适用于分析论文间的概念关联、技术路线图生成。",
     input_schema=KnowledgeGraphInput,
     category="analysis",
-    timeout=90.0,
+    timeout=300.0,
 )
 async def build_knowledge_graph(text: str, max_entities: int = 30):
     """从文本中提取知识图谱"""

@@ -11,6 +11,17 @@ from .base import MemoryNode, BaseMemoryEngine
 from .embedder import memory_embedder
 
 
+def _sanitize(value):
+    """将 Milvus 返回的 numpy 类型转换为 Python 原生类型，避免 JSON 序列化失败"""
+    if value is None:
+        return value
+    type_name = type(value).__module__
+    if type_name == "numpy":
+        # numpy scalar -> Python scalar
+        return value.item()
+    return value
+
+
 class DynamicMemoryEngine(BaseMemoryEngine):
     """
     动态记忆引擎
@@ -238,16 +249,16 @@ class DynamicMemoryEngine(BaseMemoryEngine):
                 for hit in results[0]:
                     entity = hit.get("entity", {})
                     memory = MemoryNode(
-                        id=entity.get("id", ""),
-                        content=entity.get("content", ""),
+                        id=str(entity.get("id", "")),
+                        content=str(entity.get("content", "")),
                         embedding=[],  # 不返回向量以节省内存
-                        timestamp=entity.get("timestamp", 0),
-                        importance=entity.get("importance", 1.0),
-                        access_count=entity.get("access_count", 0),
-                        memory_type=entity.get("memory_type", "dynamic"),
+                        timestamp=int(_sanitize(entity.get("timestamp", 0))),
+                        importance=float(_sanitize(entity.get("importance", 1.0))),
+                        access_count=int(_sanitize(entity.get("access_count", 0))),
+                        memory_type=str(entity.get("memory_type", "dynamic")),
                         relations={},
-                        agent_source=entity.get("agent_source", "qa_agent"),
-                        project_id=entity.get("project_id", 0)
+                        agent_source=str(entity.get("agent_source", "qa_agent")),
+                        project_id=int(_sanitize(entity.get("project_id", 0)))
                     )
                     memories.append(memory)
                     
@@ -325,16 +336,16 @@ class DynamicMemoryEngine(BaseMemoryEngine):
             if results:
                 entity = results[0]
                 return MemoryNode(
-                    id=entity.get("id", ""),
-                    content=entity.get("content", ""),
+                    id=str(entity.get("id", "")),
+                    content=str(entity.get("content", "")),
                     embedding=[],
-                    timestamp=entity.get("timestamp", 0),
-                    importance=entity.get("importance", 1.0),
-                    access_count=entity.get("access_count", 0),
-                    memory_type=entity.get("memory_type", "dynamic"),
+                    timestamp=int(_sanitize(entity.get("timestamp", 0))),
+                    importance=float(_sanitize(entity.get("importance", 1.0))),
+                    access_count=int(_sanitize(entity.get("access_count", 0))),
+                    memory_type=str(entity.get("memory_type", "dynamic")),
                     relations={},
-                    agent_source=entity.get("agent_source", "qa_agent"),
-                    project_id=entity.get("project_id", 0)
+                    agent_source=str(entity.get("agent_source", "qa_agent")),
+                    project_id=int(_sanitize(entity.get("project_id", 0)))
                 )
             return None
         except Exception as e:
@@ -419,14 +430,14 @@ class DynamicMemoryEngine(BaseMemoryEngine):
             items = []
             for entity in paged:
                 items.append({
-                    "id": entity.get("id", ""),
-                    "content": entity.get("content", ""),
-                    "timestamp": entity.get("timestamp", 0),
-                    "importance": entity.get("importance", 1.0),
-                    "access_count": entity.get("access_count", 0),
-                    "memory_type": entity.get("memory_type", "dynamic"),
-                    "agent_source": entity.get("agent_source", "qa_agent"),
-                    "project_id": entity.get("project_id", 0),
+                    "id": str(entity.get("id", "")),
+                    "content": str(entity.get("content", "")),
+                    "timestamp": int(_sanitize(entity.get("timestamp", 0))),
+                    "importance": float(_sanitize(entity.get("importance", 1.0))),
+                    "access_count": int(_sanitize(entity.get("access_count", 0))),
+                    "memory_type": str(entity.get("memory_type", "dynamic")),
+                    "agent_source": str(entity.get("agent_source", "qa_agent")),
+                    "project_id": int(_sanitize(entity.get("project_id", 0))),
                 })
             
             return {"items": items, "total": total}
@@ -441,22 +452,22 @@ class DynamicMemoryEngine(BaseMemoryEngine):
             return {"status": "disconnected"}
         
         try:
-            stats = self.milvus.get_collection_stats(self.COLLECTION_NAME)
-            
-            # 获取按类型的分布
             type_breakdown = {}
             agent_breakdown = {}
+            row_count = 0
             
             try:
+                # 使用 query 代替 get_collection_stats（pymilvus 2.3.5 兼容）
                 all_items = self.milvus.query(
                     collection_name=self.COLLECTION_NAME,
-                    filter=None,
+                    filter="",
                     output_fields=["memory_type", "agent_source"],
                     limit=10000
                 )
+                row_count = len(all_items or [])
                 for item in (all_items or []):
-                    mt = item.get("memory_type", "unknown")
-                    ag = item.get("agent_source", "unknown")
+                    mt = str(item.get("memory_type", "unknown"))
+                    ag = str(item.get("agent_source", "unknown"))
                     type_breakdown[mt] = type_breakdown.get(mt, 0) + 1
                     agent_breakdown[ag] = agent_breakdown.get(ag, 0) + 1
             except Exception:
@@ -465,11 +476,12 @@ class DynamicMemoryEngine(BaseMemoryEngine):
             return {
                 "status": "connected",
                 "collection": self.COLLECTION_NAME,
-                "row_count": stats.get("row_count", 0),
+                "row_count": row_count,
                 "type_breakdown": type_breakdown,
                 "agent_breakdown": agent_breakdown,
             }
         except Exception as e:
+            logger.error(f"Get stats failed: {e}")
             return {"status": "error", "message": str(e)}
 
 

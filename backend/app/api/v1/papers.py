@@ -55,6 +55,77 @@ class PaperUploadResponse(BaseModel):
     message: str
 
 
+# ============ Helper Functions ============
+
+def _extract_keywords_from_abstract(abstract: str, top_n: int = 10) -> List[str]:
+    """从摘要中使用TF-IDF提取关键词（当PDF中未找到显式关键词时的回退方案）"""
+    import re
+    from collections import Counter
+    
+    stop_words = {
+        "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "do", "does", "did", "will", "would", "could",
+        "should", "may", "might", "shall", "can", "for", "and", "but", "or",
+        "not", "no", "nor", "so", "yet", "to", "of", "in", "on", "at", "by",
+        "from", "with", "as", "into", "about", "between", "through", "during",
+        "before", "after", "above", "below", "this", "that", "these", "those",
+        "it", "its", "they", "them", "their", "we", "our", "you", "your",
+        "which", "who", "whom", "what", "where", "when", "how", "why",
+        "also", "more", "most", "very", "such", "than", "then", "each",
+        "other", "some", "any", "all", "both", "few", "many", "much",
+        "的", "了", "在", "是", "我", "有", "和", "就", "不", "人",
+        "都", "一", "这", "中", "大", "为", "上", "个", "到", "说",
+        "们", "也", "会", "着", "要", "而", "去", "之", "过", "与",
+        "使用", "通过", "进行", "可以", "已经", "其中", "以及", "由于",
+    }
+    
+    # 提取英文词组和中文短语
+    words = re.findall(r'[a-zA-Z]{3,}|[\u4e00-\u9fff]{2,6}', abstract.lower())
+    filtered = [w for w in words if w not in stop_words]
+    counter = Counter(filtered)
+    return [word for word, _ in counter.most_common(top_n)]
+
+
+def _extract_publication_date(metadata: dict, full_text: str):
+    """尝试从PDF元数据或文本中提取发表日期"""
+    import re
+    from datetime import date
+    
+    # 优先使用元数据中的日期
+    if metadata.get("date"):
+        try:
+            return date.fromisoformat(str(metadata["date"])[:10])
+        except (ValueError, TypeError):
+            pass
+    
+    # 从文本中提取年份（常见的学术论文日期格式）
+    text_head = full_text[:3000] if full_text else ""
+    
+    # 匹配常见日期格式: "Published: 2024-01-15", "Received 15 January 2024" 等
+    date_patterns = [
+        r'(?:published|accepted|received|submitted)[:\s]+(\d{4})[.-/](\d{1,2})[.-/](\d{1,2})',
+        r'(?:published|accepted|received|submitted)[:\s]+\d{1,2}\s+\w+\s+(\d{4})',
+        r'(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})',
+        r'(\d{4})\s*(?:年)',
+    ]
+    
+    for pattern in date_patterns:
+        match = re.search(pattern, text_head, re.IGNORECASE)
+        if match:
+            groups = match.groups()
+            try:
+                if len(groups) == 3:
+                    return date(int(groups[0]), int(groups[1]), int(groups[2]))
+                elif len(groups) == 1:
+                    year = int(groups[0])
+                    if 1990 <= year <= 2030:
+                        return date(year, 1, 1)
+            except (ValueError, TypeError):
+                continue
+    
+    return None
+
+
 # ============ Background Tasks ============
 
 async def process_paper_async(paper_id: int, file_path: str):
@@ -90,6 +161,19 @@ async def process_paper_async(paper_id: int, file_path: str):
             paper.authors = ", ".join(doc.authors) if doc.authors else None
             paper.abstract = doc.abstract
             paper.page_count = doc.page_count
+            
+            # 保存关键词（PDF解析提取的 + 从摘要TF-IDF提取的）
+            extracted_keywords = doc.keywords or []
+            if not extracted_keywords and doc.abstract:
+                # 从摘要中提取关键词作为回退
+                extracted_keywords = _extract_keywords_from_abstract(doc.abstract)
+            if extracted_keywords:
+                paper.keywords = extracted_keywords
+            
+            # 尝试从元数据中提取发表日期
+            pub_date = _extract_publication_date(doc.metadata, doc.full_text)
+            if pub_date:
+                paper.publication_date = pub_date
             
             # 分块
             chunker = SemanticChunker()

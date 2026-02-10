@@ -544,7 +544,42 @@ async def build_project_knowledge_graph(
         combined_text = "\n\n".join(text_parts)[:8000]
         logger.info(f"Knowledge graph: collected {len(text_parts)} text parts, total {len(combined_text)} chars")
         
-        # 4. 调用 build_knowledge_graph Skill
+        # 4. 先尝试快速的正则/共现方法，再尝试 LLM
+        #    快速方法: 立即返回结果（毫秒级）
+        #    LLM方法: 可能需要几分钟
+        import asyncio
+        from app.skills.analysis.analysis_skills import _build_kg_regex, _build_kg_with_llm
+        
+        # 先用快速正则方法获得基础结果
+        fast_result = _build_kg_regex(combined_text, request.max_entities)
+        
+        # 如果快速方法结果足够好（有节点和边），直接返回
+        # 同时异步尝试 LLM 方法获取更好的结果
+        if fast_result.get("node_count", 0) >= 3 and fast_result.get("edge_count", 0) >= 2:
+            # 尝试用 LLM 增强，但设置超时
+            try:
+                llm_result = await asyncio.wait_for(
+                    _build_kg_with_llm(combined_text, request.max_entities),
+                    timeout=120.0  # 2分钟超时
+                )
+                if llm_result and llm_result.get("node_count", 0) > fast_result.get("node_count", 0):
+                    return {
+                        "nodes": llm_result.get("nodes", []),
+                        "edges": llm_result.get("edges", []),
+                        "node_count": llm_result.get("node_count", 0),
+                        "edge_count": llm_result.get("edge_count", 0),
+                    }
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"LLM KG enhancement timed out or failed: {e}, using fast result")
+            
+            return {
+                "nodes": fast_result.get("nodes", []),
+                "edges": fast_result.get("edges", []),
+                "node_count": fast_result.get("node_count", 0),
+                "edge_count": fast_result.get("edge_count", 0),
+            }
+        
+        # 快速方法结果不够好，调用完整的 build_knowledge_graph Skill
         kg_result = await agent_coordinator.execute_skill(
             skill_name="build_knowledge_graph",
             text=combined_text,
@@ -560,6 +595,14 @@ async def build_project_knowledge_graph(
                 "edge_count": data.get("edge_count", 0),
             }
         else:
+            # LLM 也失败了，返回快速方法的结果（总比空的好）
+            if fast_result.get("node_count", 0) > 0:
+                return {
+                    "nodes": fast_result.get("nodes", []),
+                    "edges": fast_result.get("edges", []),
+                    "node_count": fast_result.get("node_count", 0),
+                    "edge_count": fast_result.get("edge_count", 0),
+                }
             return {
                 "nodes": [],
                 "edges": [],

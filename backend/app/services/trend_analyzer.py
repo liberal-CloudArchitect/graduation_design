@@ -77,6 +77,7 @@ class TrendAnalyzer:
         获取关键词频率统计
         
         从项目中所有论文的关键词字段统计频率。
+        如果关键词字段为空，自动从摘要中提取关键词作为回退。
         """
         from app.models.paper import Paper
         
@@ -104,6 +105,10 @@ class TrendAnalyzer:
                     if kw_clean and kw_clean not in self.STOP_WORDS and len(kw_clean) > 1:
                         counter[kw_clean] += 1
         
+        # 回退：如果关键词字段全部为空，从摘要中提取
+        if not counter:
+            counter = await self._extract_keywords_from_abstracts(db, project_id, limit)
+        
         total = sum(counter.values()) or 1
         
         frequencies = [
@@ -116,6 +121,35 @@ class TrendAnalyzer:
         ]
         
         return [f.to_dict() for f in frequencies]
+    
+    async def _extract_keywords_from_abstracts(
+        self,
+        db: AsyncSession,
+        project_id: Optional[int] = None,
+        limit: int = 50
+    ) -> Counter:
+        """从论文摘要中提取关键词（回退方案）"""
+        import re
+        from app.models.paper import Paper
+        
+        query = select(Paper.abstract)
+        if project_id:
+            query = query.where(Paper.project_id == project_id)
+        query = query.where(Paper.abstract.isnot(None))
+        
+        result = await db.execute(query)
+        abstracts = result.scalars().all()
+        
+        counter = Counter()
+        for abstract in abstracts:
+            if not abstract:
+                continue
+            words = re.findall(r'[a-zA-Z]{3,}|[\u4e00-\u9fff]{2,6}', abstract.lower())
+            for word in words:
+                if word not in self.STOP_WORDS and len(word) > 1:
+                    counter[word] += 1
+        
+        return counter
     
     async def get_text_keyword_frequency(
         self,
@@ -198,8 +232,8 @@ class TrendAnalyzer:
         
         for paper in papers:
             year = None
-            if hasattr(paper, 'year') and paper.year:
-                year = paper.year
+            if paper.publication_date:
+                year = paper.publication_date.year
             elif paper.created_at:
                 year = paper.created_at.year
             
