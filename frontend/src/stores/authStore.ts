@@ -8,18 +8,21 @@ interface AuthState {
     token: string | null;
     user: User | null;
     isLoading: boolean;
+    isAuthChecked: boolean;
 
     // Actions
     login: (data: LoginData) => Promise<void>;
     register: (data: RegisterData) => Promise<void>;
     logout: () => void;
     setUser: (user: User) => void;
+    checkAuth: () => Promise<void>;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
     token: localStorage.getItem('token'),
     user: null,
     isLoading: false,
+    isAuthChecked: false,
 
     login: async (data: LoginData) => {
         set({ isLoading: true });
@@ -28,6 +31,9 @@ export const useAuthStore = create<AuthState>((set) => ({
             const { access_token } = response.data;
             localStorage.setItem('token', access_token);
             set({ token: access_token, isLoading: false });
+            // Fetch user info after login
+            const userRes = await authApi.getMe();
+            set({ user: userRes.data });
         } catch (error) {
             set({ isLoading: false });
             throw error;
@@ -47,10 +53,30 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     logout: () => {
         localStorage.removeItem('token');
-        set({ token: null, user: null });
+        set({ token: null, user: null, isAuthChecked: false });
     },
 
     setUser: (user: User) => {
         set({ user });
+    },
+
+    checkAuth: async () => {
+        const { token, user } = get();
+        if (!token) {
+            set({ isAuthChecked: true });
+            return;
+        }
+        if (user) {
+            set({ isAuthChecked: true });
+            return;
+        }
+        try {
+            const response = await authApi.getMe();
+            set({ user: response.data, isAuthChecked: true });
+        } catch {
+            // Token is invalid or expired
+            localStorage.removeItem('token');
+            set({ token: null, user: null, isAuthChecked: true });
+        }
     },
 }));

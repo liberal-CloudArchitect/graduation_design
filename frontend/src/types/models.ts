@@ -5,6 +5,8 @@ export interface User {
     id: number;
     email: string;
     username: string;
+    avatar_url?: string;
+    role?: string;
 }
 
 export interface Project {
@@ -12,18 +14,34 @@ export interface Project {
     name: string;
     description?: string;
     paper_count: number;
+    is_public?: boolean;
     created_at: string;
     updated_at: string;
+}
+
+export interface PaperAuthor {
+    name: string;
+    affiliation?: string;
+    email?: string;
 }
 
 export interface Paper {
     id: number;
     title?: string;
-    authors?: string;
+    authors?: PaperAuthor[] | string;
     abstract?: string;
+    keywords?: string[];
+    source?: string;
+    doi?: string;
+    arxiv_id?: string;
+    publication_date?: string;
+    venue?: string;
+    file_path?: string;
+    file_size?: number;
+    page_count?: number;
+    chunk_count?: number;
     status: 'pending' | 'processing' | 'completed' | 'failed';
-    page_count: number;
-    project_id: number;
+    project_id?: number;
     created_at: string;
     updated_at: string;
 }
@@ -32,13 +50,16 @@ export interface Message {
     role: 'user' | 'assistant';
     content: string;
     created_at: string;
+    references?: Reference[];
 }
 
 export interface Conversation {
     id: number;
     project_id?: number;
+    title?: string;
     messages: Message[];
     created_at: string;
+    updated_at?: string;
 }
 
 export interface Reference {
@@ -75,4 +96,25 @@ export interface UploadResponse {
     filename: string;
     status: string;
     message: string;
+}
+
+// External search types
+export interface ExternalPaper {
+    paper_id?: string;
+    title: string;
+    authors?: string[];
+    year?: number;
+    venue?: string;
+    citation_count?: number;
+    abstract?: string;
+    doi?: string;
+    arxiv_id?: string;
+    url?: string;
+    source?: string;
+}
+
+export interface ExternalSearchResult {
+    results: ExternalPaper[];
+    total: number;
+    query: string;
 }

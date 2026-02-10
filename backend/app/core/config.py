@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     # OpenRouter配置 (兼容OpenAI SDK)
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_MODEL: str = "deepseek/deepseek-chat-v3-0324:free"
+    OPENROUTER_MODEL: str = "google/gemma-3-12b-it:free"
     
     # 文件存储
     UPLOAD_DIR: str = "./uploads"

@@ -1,6 +1,6 @@
 // 主布局组件
 import React, { useState } from 'react';
-import { Layout, Menu, Avatar, Dropdown, Typography } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Typography, Divider } from 'antd';
 import {
     HomeOutlined,
     FolderOutlined,
@@ -9,6 +9,8 @@ import {
     UserOutlined,
     MenuFoldOutlined,
     MenuUnfoldOutlined,
+    SearchOutlined,
+    GlobalOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
@@ -22,6 +24,16 @@ const MainLayout: React.FC = () => {
     const location = useLocation();
     const { user, logout } = useAuthStore();
     const [collapsed, setCollapsed] = useState(false);
+
+    // Determine selected key from location
+    const getSelectedKey = () => {
+        const { pathname } = location;
+        if (pathname === '/') return '/';
+        if (pathname.startsWith('/project')) return '/projects';
+        if (pathname.startsWith('/chat')) return '/chat';
+        if (pathname.startsWith('/search')) return '/search';
+        return pathname;
+    };
 
     const menuItems = [
         {
@@ -38,6 +50,11 @@ const MainLayout: React.FC = () => {
             key: '/chat',
             icon: <MessageOutlined />,
             label: '智能对话',
+        },
+        {
+            key: '/search',
+            icon: <GlobalOutlined />,
+            label: '文献搜索',
         },
     ];
 
@@ -80,7 +97,7 @@ const MainLayout: React.FC = () => {
                 <Menu
                     theme="dark"
                     mode="inline"
-                    selectedKeys={[location.pathname]}
+                    selectedKeys={[getSelectedKey()]}
                     items={menuItems}
                     onClick={handleMenuClick}
                 />

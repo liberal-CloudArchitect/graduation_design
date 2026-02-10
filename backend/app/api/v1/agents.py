@@ -1,7 +1,7 @@
 """
 Agent API - Multi-Agent系统路由
 
-包含 Agent 协调问答、多Agent并行处理、写作辅助、分析、搜索、
+包含 Agent 协调问答、多Agent并行处理、流式Agent问答、写作辅助、分析、搜索、
 以及 Skills 管理（列表查询、直接执行）。
 """
 from typing import List, Optional, Dict, Any
@@ -9,13 +9,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from loguru import logger
 import json
 import asyncio
 
 from app.core.deps import get_db, get_current_user
-from app.models.user import User
+from app.models.user import User, Project
+from app.models.paper import Conversation
 from app.agents.coordinator import agent_coordinator
+from app.agents.base_agent import AgentType
 from app.rag import rag_engine
 
 
@@ -92,6 +95,218 @@ async def agent_ask(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Agent处理失败: {str(e)}"
         )
+
+
+@router.post("/stream")
+async def agent_stream(
+    request: AgentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Agent流式问答 (Server-Sent Events)
+    
+    通过 Agent Coordinator 自动路由到合适的 Agent，
+    以 SSE 流式方式返回处理结果。
+    
+    SSE 事件类型:
+    - routing: 告知前端路由到了哪个 Agent
+    - chunk: 逐字输出答案内容
+    - references: 引用来源
+    - metadata: Agent 元数据（图表数据、skills_used 等）
+    - done: 流式结束，包含完整答案
+    - error: 错误信息
+    """
+    # 确保协调器已初始化
+    if not agent_coordinator._initialized:
+        await agent_coordinator.initialize(rag_engine)
+    
+    # 验证项目权限
+    if request.project_id:
+        result = await db.execute(
+            select(Project).where(
+                Project.id == request.project_id,
+                Project.user_id == current_user.id
+            )
+        )
+        if not result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="项目不存在"
+            )
+    
+    # 在外部确定路由，以便在 generate() 中使用
+    # (generate 是 async generator，不能在其中抛出 HTTPException)
+    if request.agent_type:
+        try:
+            at = AgentType(request.agent_type)
+            routed_agent = agent_coordinator.agents.get(at)
+        except ValueError:
+            routed_agent = None
+        if not routed_agent:
+            routed_agent, _ = agent_coordinator._route_query(request.query)
+        routed_type = routed_agent.agent_type.value
+    else:
+        routed_agent, confidence = agent_coordinator._route_query(request.query)
+        routed_type = routed_agent.agent_type.value
+        logger.info(
+            f"[agent/stream] Routing to {routed_type} (confidence: {confidence:.2f})"
+        )
+    
+    async def generate():
+        """生成 SSE 流式响应"""
+        full_answer = ""
+        agent_type_used = routed_type
+        references_data = []
+        metadata_extra = {}
+        
+        try:
+            # 1. 发送路由信息
+            agent_labels = {
+                "retriever_agent": "文献检索Agent",
+                "analyzer_agent": "趋势分析Agent",
+                "writer_agent": "写作辅助Agent",
+                "search_agent": "学术搜索Agent",
+            }
+            yield f"data: {json.dumps({'type': 'routing', 'data': {'agent_type': agent_type_used, 'label': agent_labels.get(agent_type_used, agent_type_used)}}, ensure_ascii=False)}\n\n"
+            
+            # 2. 对于 RetrieverAgent，使用流式 LLM 输出
+            if agent_type_used == "retriever_agent" and rag_engine.llm:
+                # 2a. 先检索文档
+                search_results = await rag_engine.search(
+                    request.query,
+                    request.project_id,
+                    request.params.get("top_k", 5)
+                )
+                
+                # 发送引用
+                if search_results:
+                    docs = await rag_engine._fetch_documents(search_results)
+                    references_data = docs
+                    yield f"data: {json.dumps({'type': 'references', 'data': docs}, ensure_ascii=False)}\n\n"
+                else:
+                    docs = []
+                
+                # 2b. 获取记忆上下文（如果可用）
+                memory_results = []
+                if rag_engine.memory_engine:
+                    try:
+                        memory_results = await rag_engine.memory_engine.retrieve(
+                            request.query, request.project_id, top_k=3
+                        )
+                    except Exception as e:
+                        logger.warning(f"Memory retrieval failed in stream: {e}")
+                
+                # 2c. 构建上下文
+                context = rag_engine._build_context_with_memory(docs, memory_results)
+                
+                # 2d. 流式生成答案
+                prompt = f"""根据以下参考资料回答用户问题。
+
+参考资料:
+{context}
+
+用户问题: {request.query}
+
+要求:
+1. 仅基于提供的参考资料回答
+2. 如有引用，使用[1][2]格式标注
+3. 如果资料中没有相关信息，请明确说明
+4. 如有历史对话记忆相关内容，可适当参考
+"""
+                async for chunk in rag_engine.llm.astream(prompt):
+                    if hasattr(chunk, 'content') and chunk.content:
+                        full_answer += chunk.content
+                        yield f"data: {json.dumps({'type': 'chunk', 'data': chunk.content}, ensure_ascii=False)}\n\n"
+                        await asyncio.sleep(0.01)
+                
+                metadata_extra = {
+                    "method": "rag_memory_enhanced",
+                    "memory_used": len(memory_results) > 0,
+                    "memory_count": len(memory_results),
+                }
+                
+                # 保存到记忆
+                if rag_engine.memory_engine:
+                    try:
+                        await rag_engine.memory_engine.add_memory(
+                            content=f"Q: {request.query}\nA: {full_answer}",
+                            metadata={"project_id": request.project_id or 0, "agent_source": "retriever_agent"}
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to save memory in stream: {e}")
+            
+            else:
+                # 3. 非 Retriever Agent（或 LLM 不可用时）：
+                #    先执行 Agent 获取完整结果，再逐块流式发送
+                try:
+                    response = await agent_coordinator.process(
+                        query=request.query,
+                        project_id=request.project_id,
+                        agent_type=agent_type_used,
+                        **request.params
+                    )
+                    
+                    agent_type_used = response.agent_type
+                    full_content = response.content
+                    references_data = response.references
+                    metadata_extra = response.metadata
+                    
+                    # 发送引用
+                    if references_data:
+                        yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
+                    
+                    # 逐块发送内容（模拟流式效果）
+                    chunk_size = 20  # 每块约20字符
+                    for i in range(0, len(full_content), chunk_size):
+                        text_chunk = full_content[i:i + chunk_size]
+                        full_answer += text_chunk
+                        yield f"data: {json.dumps({'type': 'chunk', 'data': text_chunk}, ensure_ascii=False)}\n\n"
+                        await asyncio.sleep(0.02)
+                    
+                except Exception as e:
+                    logger.error(f"Agent execution failed in stream: {e}")
+                    yield f"data: {json.dumps({'type': 'error', 'data': f'Agent处理失败: {str(e)}'}, ensure_ascii=False)}\n\n"
+                    return
+            
+            # 4. 发送元数据
+            if metadata_extra:
+                yield f"data: {json.dumps({'type': 'metadata', 'data': metadata_extra}, ensure_ascii=False)}\n\n"
+            
+            # 5. 保存对话到数据库
+            try:
+                conversation = Conversation(
+                    user_id=current_user.id,
+                    project_id=request.project_id,
+                    messages=[
+                        {"role": "user", "content": request.query},
+                        {"role": "assistant", "content": full_answer,
+                         "agent_type": agent_type_used}
+                    ]
+                )
+                db.add(conversation)
+                await db.commit()
+                await db.refresh(conversation)
+                conversation_id = conversation.id
+            except Exception as e:
+                logger.warning(f"Failed to save conversation in stream: {e}")
+                conversation_id = None
+            
+            # 6. 发送完成信号
+            yield f"data: {json.dumps({'type': 'done', 'data': {'answer': full_answer, 'agent_type': agent_type_used, 'conversation_id': conversation_id}}, ensure_ascii=False)}\n\n"
+        
+        except Exception as e:
+            logger.error(f"Agent stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': str(e)}, ensure_ascii=False)}\n\n"
+    
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive"
+        }
+    )
 
 
 @router.post("/multi")
