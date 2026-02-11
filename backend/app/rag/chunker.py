@@ -93,11 +93,16 @@ class SemanticChunker:
         return chunks
     
     def _clean_text(self, text: str) -> str:
-        """清理文本"""
-        # 移除多余空白
-        text = re.sub(r'\s+', ' ', text)
-        # 移除特殊控制字符
+        """清理文本，保留有意义的段落结构"""
+        # 移除特殊控制字符（保留 \n 和 \t）
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+        # 规范化段落分隔：将3个以上连续换行压缩为2个（保留段落结构）
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        # 行内多余空白压缩为单个空格（不影响换行）
+        text = re.sub(r'[^\S\n]+', ' ', text)
+        # 移除每行首尾空白
+        lines = [line.strip() for line in text.split('\n')]
+        text = '\n'.join(lines)
         return text.strip()
     
     def _split_recursive(self, text: str, separators: List[str]) -> List[str]:
@@ -251,25 +256,43 @@ class SentenceChunker:
         return chunks
 
 
-# 默认分块器实例
-default_chunker = SemanticChunker()
+# 默认分块器实例（使用配置中的参数）
+def _get_default_chunker() -> SemanticChunker:
+    try:
+        from app.core.config import settings
+        return SemanticChunker(
+            chunk_size=settings.CHUNK_SIZE,
+            chunk_overlap=settings.CHUNK_OVERLAP
+        )
+    except Exception:
+        return SemanticChunker()
+
+default_chunker = _get_default_chunker()
 
 
 def chunk_text(
     text: str, 
-    chunk_size: int = 512, 
-    overlap: int = 50
+    chunk_size: Optional[int] = None, 
+    overlap: Optional[int] = None
 ) -> List[Chunk]:
     """
     便捷函数：分割文本
     
     Args:
         text: 输入文本
-        chunk_size: 块大小
-        overlap: 重叠大小
+        chunk_size: 块大小（默认使用配置值）
+        overlap: 重叠大小（默认使用配置值）
         
     Returns:
         Chunk列表
     """
-    chunker = SemanticChunker(chunk_size=chunk_size, chunk_overlap=overlap)
+    try:
+        from app.core.config import settings
+        cs = chunk_size or settings.CHUNK_SIZE
+        ov = overlap or settings.CHUNK_OVERLAP
+    except Exception:
+        cs = chunk_size or 1024
+        ov = overlap or 128
+    
+    chunker = SemanticChunker(chunk_size=cs, chunk_overlap=ov)
     return chunker.split_text(text)

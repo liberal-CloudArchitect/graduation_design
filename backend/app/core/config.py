@@ -61,8 +61,8 @@ class Settings(BaseSettings):
     
     # RAG配置
     BGE_MODEL_PATH: str = "BAAI/bge-m3"
-    CHUNK_SIZE: int = 512
-    CHUNK_OVERLAP: int = 50
+    CHUNK_SIZE: int = 1024       # 从 512 提升到 1024，适配学术论文段落
+    CHUNK_OVERLAP: int = 128     # 从 50 提升到 128，减少上下文断裂
     RETRIEVAL_TOP_K: int = 5
     
     class Config:

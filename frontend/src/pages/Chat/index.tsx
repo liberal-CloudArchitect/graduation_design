@@ -157,8 +157,13 @@ const ChatPage: React.FC = () => {
         try {
             const { data } = await ragApi.getConversations(undefined, 50);
             setConversations(data);
-        } catch (error) {
-            console.error('Failed to load conversations:', error);
+        } catch (error: any) {
+            // 401 由 axios interceptor 自动刷新 token 并重试；
+            // 若刷新也失败则跳转登录，此处无需额外处理。
+            // 其它错误仅记录日志，不影响主流程。
+            if (error?.response?.status !== 401) {
+                console.error('Failed to load conversations:', error);
+            }
         } finally {
             setConversationsLoading(false);
         }
@@ -272,6 +277,7 @@ const ChatPage: React.FC = () => {
                     query: parsed.query,
                     project_id: selectedProject,
                     agent_type: parsed.agent_type,
+                    conversation_id: activeConversationId || undefined,
                     params: parsed.params || {},
                 },
                 {

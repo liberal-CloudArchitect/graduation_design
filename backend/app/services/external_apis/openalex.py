@@ -113,7 +113,7 @@ class OpenAlexClient(BaseAPIClient):
         query: str,
         limit: int = 10,
         page: int = 1,
-        sort: str = "relevance_score",
+        sort: str = "relevance_score:desc",
         year: Optional[str] = None,
         concepts: Optional[List[str]] = None
     ) -> List[OpenAlexWork]:
@@ -124,15 +124,17 @@ class OpenAlexClient(BaseAPIClient):
             query: 搜索关键词
             limit: 返回数量
             page: 页码
-            sort: 排序方式 (relevance_score, cited_by_count, publication_date)
+            sort: 排序方式 (relevance_score:desc, cited_by_count:desc, publication_date:desc)
             year: 年份过滤
             concepts: 概念过滤
         """
+        # OpenAlex 要求排序字段带方向后缀，默认降序
+        sort_param = sort if ":" in sort else f"{sort}:desc"
         params = {
             "search": query,
             "per_page": min(limit, 200),
             "page": page,
-            "sort": sort
+            "sort": sort_param
         }
         
         filters = []

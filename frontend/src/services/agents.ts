@@ -1,11 +1,12 @@
 // Multi-Agent API服务
-import { authAxios, API_BASE_URL } from './axios';
+import { authAxios, API_BASE_URL, tokenUtils } from './axios';
 import type { Reference } from '../types/models';
 
 export interface AgentRequest {
     query: string;
     project_id?: number;
     agent_type?: string;
+    conversation_id?: number;  // 对话ID，用于加载历史上下文
     params?: Record<string, any>;
 }
 
@@ -54,7 +55,7 @@ export const agentsApi = {
      * 支持事件类型: routing / chunk / references / metadata / done / error
      */
     stream: async (data: AgentRequest, callbacks: AgentStreamCallbacks) => {
-        const token = localStorage.getItem('token');
+        const token = tokenUtils.getAccessToken();
 
         try {
             const response = await fetch(`${API_BASE_URL}/agent/stream`, {

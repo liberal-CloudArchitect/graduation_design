@@ -155,7 +155,7 @@ class SemanticScholarClient(BaseAPIClient):
             cache_key=f"s2_citations:{paper_id}:{limit}:{offset}"
         )
         
-        if not data or "data" not in data:
+        if not data or not data.get("data"):
             return []
         
         return [
@@ -179,7 +179,7 @@ class SemanticScholarClient(BaseAPIClient):
             cache_key=f"s2_references:{paper_id}:{limit}:{offset}"
         )
         
-        if not data or "data" not in data:
+        if not data or not data.get("data"):
             return []
         
         return [
@@ -199,7 +199,7 @@ class SemanticScholarClient(BaseAPIClient):
             cache_key=f"s2_recommend:{paper_id}:{limit}"
         )
         
-        if not data or "recommendedPapers" not in data:
+        if not data or not data.get("recommendedPapers"):
             return []
         
         return [S2Paper.from_api(p) for p in data["recommendedPapers"]]
@@ -217,7 +217,7 @@ class SemanticScholarClient(BaseAPIClient):
             cache_key=f"s2_author:{query}:{limit}"
         )
         
-        if not data or "data" not in data:
+        if not data or not data.get("data"):
             return []
         
         return data["data"]

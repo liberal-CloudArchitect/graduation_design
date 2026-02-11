@@ -32,6 +32,7 @@ class AgentRequest(BaseModel):
     query: str
     project_id: Optional[int] = None
     agent_type: Optional[str] = None  # retriever_agent, analyzer_agent, writer_agent, search_agent
+    conversation_id: Optional[int] = None  # 对话ID，用于加载历史上下文
     params: dict = {}
 
 
@@ -161,6 +162,22 @@ async def agent_stream(
         metadata_extra = {}
         
         try:
+            # 0. 加载对话历史（如果有 conversation_id）
+            conversation_history = []
+            if request.conversation_id:
+                try:
+                    hist_result = await db.execute(
+                        select(Conversation).where(
+                            Conversation.id == request.conversation_id,
+                            Conversation.user_id == current_user.id
+                        )
+                    )
+                    hist_conv = hist_result.scalar_one_or_none()
+                    if hist_conv and hist_conv.messages:
+                        conversation_history = hist_conv.messages
+                except Exception as e:
+                    logger.warning(f"Failed to load conversation history: {e}")
+            
             # 1. 发送路由信息
             agent_labels = {
                 "retriever_agent": "文献检索Agent",
@@ -170,71 +187,34 @@ async def agent_stream(
             }
             yield f"data: {json.dumps({'type': 'routing', 'data': {'agent_type': agent_type_used, 'label': agent_labels.get(agent_type_used, agent_type_used)}}, ensure_ascii=False)}\n\n"
             
-            # 2. 对于 RetrieverAgent，使用流式 LLM 输出
+            # 2. 对于 RetrieverAgent，使用统一的 answer_stream()
             if agent_type_used == "retriever_agent" and rag_engine.llm:
-                # 2a. 先检索文档
-                search_results = await rag_engine.search(
-                    request.query,
-                    request.project_id,
-                    request.params.get("top_k", 5)
-                )
-                
-                # 发送引用
-                if search_results:
-                    docs = await rag_engine._fetch_documents(search_results)
-                    references_data = docs
-                    yield f"data: {json.dumps({'type': 'references', 'data': docs}, ensure_ascii=False)}\n\n"
-                else:
-                    docs = []
-                
-                # 2b. 获取记忆上下文（如果可用）
-                memory_results = []
-                if rag_engine.memory_engine:
-                    try:
-                        memory_results = await rag_engine.memory_engine.retrieve(
-                            request.query, request.project_id, top_k=3
-                        )
-                    except Exception as e:
-                        logger.warning(f"Memory retrieval failed in stream: {e}")
-                
-                # 2c. 构建上下文
-                context = rag_engine._build_context_with_memory(docs, memory_results)
-                
-                # 2d. 流式生成答案
-                prompt = f"""根据以下参考资料回答用户问题。
-
-参考资料:
-{context}
-
-用户问题: {request.query}
-
-要求:
-1. 仅基于提供的参考资料回答
-2. 如有引用，使用[1][2]格式标注
-3. 如果资料中没有相关信息，请明确说明
-4. 如有历史对话记忆相关内容，可适当参考
-"""
-                async for chunk in rag_engine.llm.astream(prompt):
-                    if hasattr(chunk, 'content') and chunk.content:
-                        full_answer += chunk.content
-                        yield f"data: {json.dumps({'type': 'chunk', 'data': chunk.content}, ensure_ascii=False)}\n\n"
-                        await asyncio.sleep(0.01)
-                
-                metadata_extra = {
-                    "method": "rag_memory_enhanced",
-                    "memory_used": len(memory_results) > 0,
-                    "memory_count": len(memory_results),
-                }
-                
-                # 保存到记忆
-                if rag_engine.memory_engine:
-                    try:
-                        await rag_engine.memory_engine.add_memory(
-                            content=f"Q: {request.query}\nA: {full_answer}",
-                            metadata={"project_id": request.project_id or 0, "agent_source": "retriever_agent"}
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to save memory in stream: {e}")
+                async for event in rag_engine.answer_stream(
+                    question=request.query,
+                    project_id=request.project_id,
+                    top_k=request.params.get("top_k", 5),
+                    use_memory=True,
+                    conversation_history=conversation_history,
+                    paper_ids=request.params.get("paper_ids"),
+                ):
+                    event_type = event.get("type")
+                    
+                    if event_type == "references":
+                        references_data = event["data"]
+                        yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
+                    
+                    elif event_type == "chunk":
+                        full_answer += event["data"]
+                        yield f"data: {json.dumps({'type': 'chunk', 'data': event['data']}, ensure_ascii=False)}\n\n"
+                    
+                    elif event_type == "done":
+                        done_data = event["data"]
+                        full_answer = done_data.get("answer", full_answer)
+                        metadata_extra = {
+                            "method": done_data.get("method", "rag_memory_enhanced"),
+                            "memory_used": done_data.get("memory_used", False),
+                            "memory_count": done_data.get("memory_count", 0),
+                        }
             
             else:
                 # 3. 非 Retriever Agent（或 LLM 不可用时）：
@@ -280,31 +260,51 @@ async def agent_stream(
             if metadata_extra:
                 yield f"data: {json.dumps({'type': 'metadata', 'data': metadata_extra}, ensure_ascii=False)}\n\n"
             
-            # 5. 保存对话到数据库（含元数据用于前端重渲染图表等）
+            # 5. 保存对话到数据库（追加到现有对话或创建新对话）
+            conversation_id = None
             try:
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": full_answer,
-                    "agent_type": agent_type_used,
-                }
-                if metadata_extra:
-                    assistant_msg["metadata"] = metadata_extra
+                new_msgs = [
+                    {"role": "user", "content": request.query},
+                    {
+                        "role": "assistant",
+                        "content": full_answer,
+                        "agent_type": agent_type_used,
+                        **({"metadata": metadata_extra} if metadata_extra else {}),
+                    }
+                ]
                 
-                conversation = Conversation(
-                    user_id=current_user.id,
-                    project_id=request.project_id,
-                    messages=[
-                        {"role": "user", "content": request.query},
-                        assistant_msg
-                    ]
-                )
-                db.add(conversation)
-                await db.commit()
-                await db.refresh(conversation)
-                conversation_id = conversation.id
+                # 如果有现有对话，追加消息
+                if request.conversation_id:
+                    try:
+                        conv_result = await db.execute(
+                            select(Conversation).where(
+                                Conversation.id == request.conversation_id,
+                                Conversation.user_id == current_user.id
+                            )
+                        )
+                        existing_conv = conv_result.scalar_one_or_none()
+                        if existing_conv:
+                            existing_msgs = existing_conv.messages or []
+                            existing_conv.messages = existing_msgs + new_msgs
+                            await db.commit()
+                            await db.refresh(existing_conv)
+                            conversation_id = existing_conv.id
+                    except Exception as e:
+                        logger.warning(f"Failed to append to conversation: {e}")
+                
+                # 否则创建新对话
+                if conversation_id is None:
+                    conversation = Conversation(
+                        user_id=current_user.id,
+                        project_id=request.project_id,
+                        messages=new_msgs
+                    )
+                    db.add(conversation)
+                    await db.commit()
+                    await db.refresh(conversation)
+                    conversation_id = conversation.id
             except Exception as e:
                 logger.warning(f"Failed to save conversation in stream: {e}")
-                conversation_id = None
             
             # 6. 发送完成信号
             yield f"data: {json.dumps({'type': 'done', 'data': {'answer': full_answer, 'agent_type': agent_type_used, 'conversation_id': conversation_id}}, ensure_ascii=False)}\n\n"

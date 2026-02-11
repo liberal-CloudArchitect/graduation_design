@@ -1,6 +1,7 @@
 // 认证状态管理
 import { create } from 'zustand';
 import { authApi } from '../services/auth';
+import { authAxios, tokenUtils } from '../services/axios';
 import type { LoginData, RegisterData } from '../services/auth';
 import type { User } from '../types/models';
 
@@ -19,7 +20,7 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-    token: localStorage.getItem('token'),
+    token: tokenUtils.getAccessToken(),
     user: null,
     isLoading: false,
     isAuthChecked: false,
@@ -28,8 +29,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         set({ isLoading: true });
         try {
             const response = await authApi.login(data);
-            const { access_token } = response.data;
-            localStorage.setItem('token', access_token);
+            const { access_token, refresh_token } = response.data;
+            tokenUtils.setTokens(access_token, refresh_token);
+            authAxios.defaults.headers.common.Authorization = `Bearer ${access_token}`;
             set({ token: access_token, isLoading: false });
             // Fetch user info after login
             const userRes = await authApi.getMe();
@@ -52,7 +54,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     },
 
     logout: () => {
-        localStorage.removeItem('token');
+        tokenUtils.clearTokens();
+        delete authAxios.defaults.headers.common.Authorization;
         set({ token: null, user: null, isAuthChecked: false });
     },
 
@@ -74,8 +77,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
             const response = await authApi.getMe();
             set({ user: response.data, isAuthChecked: true });
         } catch {
-            // Token is invalid or expired
-            localStorage.removeItem('token');
+            // Token is invalid or expired — axios interceptor 会尝试自动刷新
+            // 如果刷新也失败了，interceptor 会清理 token 并跳转登录
+            tokenUtils.clearTokens();
             set({ token: null, user: null, isAuthChecked: true });
         }
     },

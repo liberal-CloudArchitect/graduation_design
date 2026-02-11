@@ -1,7 +1,7 @@
 // RAG API服务
 // 基于 docs/api/04_rag.md
 
-import { authAxios, API_BASE_URL } from './axios';
+import { authAxios, API_BASE_URL, tokenUtils } from './axios';
 import type { AnswerResponse, Conversation, Reference } from '../types/models';
 
 export interface AskQuestionData {
@@ -29,7 +29,7 @@ export const ragApi = {
      * 流式问答 (SSE)
      */
     stream: async (data: AskQuestionData, callbacks: StreamCallbacks) => {
-        const token = localStorage.getItem('token');
+        const token = tokenUtils.getAccessToken();
 
         try {
             const response = await fetch(`${API_BASE_URL}/rag/stream`, {

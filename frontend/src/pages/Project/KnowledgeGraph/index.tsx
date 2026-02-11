@@ -93,12 +93,21 @@ const KnowledgeGraph: React.FC<Props> = ({ projectId }) => {
         setLoading(true);
         try {
             const { data } = await externalApi.getCitations(paperId, 1, 15);
-            setGraphData(data);
+            const nodes = data?.nodes || [];
+            const edges = data?.edges || [];
+            if (nodes.length === 0) {
+                setGraphData({ nodes: [], edges: [] });
+                message.info('未获取到引用网络数据，可能外部API暂时不可用');
+                return;
+            }
+            const formatted = { nodes, edges };
+            setGraphData(formatted);
             if (viewMode === '2d') {
-                renderGraph2D(data, 'citation');
+                renderGraph2D(formatted, 'citation');
             }
         } catch {
-            message.error('加载引用网络失败');
+            message.error('加载引用网络失败，请稍后重试');
+            setGraphData({ nodes: [], edges: [] });
         } finally {
             setLoading(false);
         }

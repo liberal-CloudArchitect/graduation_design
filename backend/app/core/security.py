@@ -8,6 +8,7 @@ from passlib.context import CryptContext
 from pydantic import BaseModel
 
 from app.core.config import settings
+from loguru import logger
 
 
 # 密码加密上下文
@@ -48,6 +49,8 @@ def create_access_token(
 ) -> str:
     """创建访问Token"""
     to_encode = data.copy()
+    if "sub" in to_encode and to_encode["sub"] is not None:
+        to_encode["sub"] = str(to_encode["sub"])
     
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -71,6 +74,8 @@ def create_refresh_token(
 ) -> str:
     """创建刷新Token"""
     to_encode = data.copy()
+    if "sub" in to_encode and to_encode["sub"] is not None:
+        to_encode["sub"] = str(to_encode["sub"])
     
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
@@ -96,14 +101,23 @@ def decode_token(token: str) -> Optional[TokenData]:
             settings.SECRET_KEY, 
             algorithms=[settings.ALGORITHM]
         )
-        user_id: int = payload.get("sub")
+        raw_user_id = payload.get("sub")
         email: str = payload.get("email")
         
-        if user_id is None:
+        if raw_user_id is None:
             return None
-            
+
+        try:
+            user_id = int(raw_user_id)
+        except (TypeError, ValueError):
+            return None
+
         return TokenData(user_id=user_id, email=email)
-    except JWTError:
+    except JWTError as e:
+        token_preview = ""
+        if isinstance(token, str):
+            token_preview = f"len={len(token)} head={token[:6]} tail={token[-6:]}"
+        logger.debug(f"JWT decode failed: {type(e).__name__} {token_preview}")
         return None
 
 

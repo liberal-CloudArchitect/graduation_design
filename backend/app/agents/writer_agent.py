@@ -12,6 +12,13 @@ from typing import Optional, List, Dict, Any
 from loguru import logger
 
 from app.agents.base_agent import BaseAgent, AgentType, AgentResponse
+from app.rag.prompts import (
+    WRITER_OUTLINE_TEMPLATE,
+    WRITER_REVIEW_TEMPLATE,
+    WRITER_POLISH_TEMPLATE,
+    WRITER_CITATION_TEMPLATE,
+    WRITER_GENERAL_TEMPLATE,
+)
 
 
 class WriterAgent(BaseAgent):
@@ -239,30 +246,16 @@ class WriterAgent(BaseAgent):
             refs = await self.rag_engine._fetch_documents(search_results)
         
         ref_context = "\n".join(
-            f"[{i+1}] {r.get('text', '')[:200]}"
+            f"[{i+1}] {r.get('text', '')[:500]}"  # 从200提升到500
             for i, r in enumerate(refs)
         )
         
         if self._llm:
-            prompt = f"""请为以下研究主题生成一份详细的论文大纲。
-
-研究主题：{query}
-
-相关文献参考：
-{ref_context if ref_context else '无可用参考文献'}
-{skill_context}
-
-请生成包含以下部分的大纲：
-1. 标题建议
-2. 摘要要点
-3. 引言（研究背景、问题、目的）
-4. 相关工作/文献综述
-5. 方法论
-6. 实验/结果
-7. 讨论
-8. 结论
-
-每个部分请给出2-3个要点。使用Markdown格式输出。"""
+            prompt = WRITER_OUTLINE_TEMPLATE.format(
+                query=query,
+                ref_context=ref_context if ref_context else "无可用参考文献",
+                skill_context=skill_context,
+            )
             
             response = await self._llm.ainvoke(prompt)
             return {"content": response.content, "references": refs}
@@ -280,25 +273,16 @@ class WriterAgent(BaseAgent):
             refs = await self.rag_engine._fetch_documents(search_results)
         
         ref_context = "\n\n".join(
-            f"文献[{i+1}]: {r.get('text', '')[:500]}"
+            f"文献[{i+1}]: {r.get('text', '')[:1500]}"  # 从500提升到1500
             for i, r in enumerate(refs)
         )
         
         if self._llm:
-            prompt = f"""请基于以下文献资料，撰写一篇学术文献综述段落。
-
-研究主题：{query}
-
-参考文献：
-{ref_context if ref_context else '无可用参考文献'}
-{skill_context}
-
-要求：
-1. 使用学术写作风格
-2. 使用[1][2]格式引用文献
-3. 逻辑清晰，层次分明
-4. 包含研究背景、现有方法、不足之处和发展方向
-5. 字数约500-800字"""
+            prompt = WRITER_REVIEW_TEMPLATE.format(
+                query=query,
+                ref_context=ref_context if ref_context else "无可用参考文献",
+                skill_context=skill_context,
+            )
             
             response = await self._llm.ainvoke(prompt)
             return {"content": response.content, "references": refs}
@@ -310,17 +294,7 @@ class WriterAgent(BaseAgent):
         text_to_polish = context if context else query
         
         if self._llm:
-            prompt = f"""请对以下学术文本进行润色和改进：
-
-原文：
-{text_to_polish}
-
-要求：
-1. 保持原意不变
-2. 使用更专业的学术用语
-3. 改善句式结构和逻辑连贯性
-4. 修正语法和拼写错误
-5. 输出润色后的完整文本，并在最后简要说明主要改动"""
+            prompt = WRITER_POLISH_TEMPLATE.format(text=text_to_polish)
             
             response = await self._llm.ainvoke(prompt)
             return {"content": response.content}
@@ -387,18 +361,14 @@ class WriterAgent(BaseAgent):
         
         if self._llm:
             ref_context = "\n".join(
-                f"[{i+1}] {r.get('text', '')[:200]}" for i, r in enumerate(refs)
+                f"[{i+1}] {r.get('text', '')[:800]}" for i, r in enumerate(refs)  # 从200提升到800
             )
             
-            prompt = f"""请根据以下请求进行学术写作辅助：
-
-用户请求：{query}
-
-参考资料：
-{ref_context if ref_context else '无'}
-{skill_context}
-
-请用学术风格完成写作任务。"""
+            prompt = WRITER_GENERAL_TEMPLATE.format(
+                query=query,
+                ref_context=ref_context if ref_context else "无",
+                skill_context=skill_context,
+            )
             
             response = await self._llm.ainvoke(prompt)
             return {"content": response.content, "references": refs}

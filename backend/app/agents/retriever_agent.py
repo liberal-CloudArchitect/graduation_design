@@ -129,16 +129,14 @@ class RetrieverAgent(BaseAgent):
                     confidence=0.0,
                 )
             
-            # 将 Skill 结果拼接到查询中增强检索
-            enhanced_query = query
-            if extra_context:
-                enhanced_query = f"{query}\n\n参考上下文:{extra_context[:2000]}"
-            
+            # 修复查询污染：保持原始 query 用于检索，
+            # extra_context 作为独立参数在 Prompt 中注入，不影响向量检索
             result = await self.rag_engine.answer(
-                question=enhanced_query,
+                question=query,  # 使用原始查询，不拼接额外内容
                 project_id=project_id,
                 top_k=top_k,
                 use_memory=use_memory,
+                extra_context=extra_context,  # 通过独立参数注入
             )
             
             # 保存交互到记忆

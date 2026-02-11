@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime
 import json
-import asyncio
 from loguru import logger
 
 from app.core.deps import get_db, get_current_user
@@ -99,7 +98,8 @@ async def ask_question(
         result = await rag_engine.answer(
             question=request.question,
             project_id=request.project_id,
-            top_k=request.top_k
+            top_k=request.top_k,
+            paper_ids=request.paper_ids,
         )
     except Exception as e:
         logger.error(f"RAG error: {e}")
@@ -167,47 +167,16 @@ async def stream_answer(
             )
     
     async def generate():
-        """生成流式响应"""
+        """使用统一的 answer_stream() 生成流式响应"""
         try:
-            # 1. 先检索文档
-            search_results = await rag_engine.search(
-                request.question, 
-                request.project_id, 
-                request.top_k
-            )
-            
-            # 发送检索结果
-            yield f"data: {json.dumps({'type': 'references', 'data': search_results})}\n\n"
-            
-            # 2. 获取文档内容
-            docs = await rag_engine._fetch_documents(search_results)
-            context = rag_engine._build_context(docs)
-            
-            # 3. 流式生成答案
-            if rag_engine.llm:
-                prompt = f"""根据以下参考文献回答用户问题。
-
-参考文献:
-{context}
-
-用户问题: {request.question}
-
-要求:
-1. 仅基于提供的参考文献回答
-2. 如有引用，使用[1][2]格式标注
-3. 如果文献中没有相关信息，请明确说明
-"""
-                full_answer = ""
-                async for chunk in rag_engine.llm.astream(prompt):
-                    if hasattr(chunk, 'content') and chunk.content:
-                        full_answer += chunk.content
-                        yield f"data: {json.dumps({'type': 'chunk', 'data': chunk.content})}\n\n"
-                        await asyncio.sleep(0.01)  # 小延迟确保流畅
-                
-                # 发送完成信号
-                yield f"data: {json.dumps({'type': 'done', 'data': {'answer': full_answer}})}\n\n"
-            else:
-                yield f"data: {json.dumps({'type': 'error', 'data': 'LLM未初始化'})}\n\n"
+            async for event in rag_engine.answer_stream(
+                question=request.question,
+                project_id=request.project_id,
+                top_k=request.top_k,
+                use_memory=True,
+                paper_ids=request.paper_ids,
+            ):
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 
         except Exception as e:
             logger.error(f"Stream error: {e}")

@@ -8,10 +8,12 @@ Analyzer Agent - 分析Agent
 - build_knowledge_graph（知识图谱构建）
 - generate_viz_code（可视化代码生成）
 """
+import json
 from typing import Optional, Dict, Any, List
 from loguru import logger
 
 from app.agents.base_agent import BaseAgent, AgentType, AgentResponse
+from app.rag.prompts import ANALYZER_FALLBACK_TEMPLATE
 
 
 class AnalyzerAgent(BaseAgent):
@@ -135,7 +137,8 @@ class AnalyzerAgent(BaseAgent):
             
             # ---- 核心分析逻辑 ----
             result = await self._perform_analysis(
-                query, project_id, analysis_type, **kwargs
+                query, project_id, analysis_type,
+                skill_data=skill_data, **kwargs
             )
             
             # ---- Skill: 自动生成图表 ----
@@ -209,7 +212,8 @@ class AnalyzerAgent(BaseAgent):
     
     async def _perform_analysis(
         self, query: str, project_id: Optional[int],
-        analysis_type: str, **kwargs
+        analysis_type: str, skill_data: Optional[Dict] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """执行具体分析"""
         if self.trend_service:
@@ -257,17 +261,32 @@ class AnalyzerAgent(BaseAgent):
                 "charts": ["table"],
             }
         
-        # 无趋势服务时使用LLM分析
+        # 无趋势服务时使用LLM分析（增强版：注入 skill_data 和项目文本）
         if self._llm:
-            prompt = f"""请分析以下研究问题并给出数据洞察：
-
-问题：{query}
-分析类型：{analysis_type}
-
-请给出：
-1. 主要发现
-2. 数据趋势描述
-3. 建议关注的方向"""
+            # 收集项目文本以提供上下文
+            project_text_section = ""
+            if project_id and self.rag_engine:
+                try:
+                    project_text = await self._fetch_project_text(project_id)
+                    if project_text:
+                        project_text_section = f"项目文献摘要：\n{project_text[:3000]}"
+                except Exception as e:
+                    logger.warning(f"[AnalyzerAgent] Failed to fetch project text for LLM fallback: {e}")
+            
+            # 注入 skill 获取的数据
+            skill_data_section = ""
+            if skill_data:
+                try:
+                    skill_data_section = f"已获取的结构化数据：\n{json.dumps(skill_data, ensure_ascii=False, default=str)[:3000]}"
+                except Exception:
+                    skill_data_section = ""
+            
+            prompt = ANALYZER_FALLBACK_TEMPLATE.format(
+                query=query,
+                analysis_type=analysis_type,
+                project_text_section=project_text_section,
+                skill_data_section=skill_data_section,
+            )
             
             response = await self._llm.ainvoke(prompt)
             return {
