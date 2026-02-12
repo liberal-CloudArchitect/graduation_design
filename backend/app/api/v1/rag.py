@@ -1,7 +1,7 @@
 """
 RAG API - RAG问答路由
 """
-from typing import List, Optional
+from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,7 +13,7 @@ from loguru import logger
 
 from app.core.deps import get_db, get_current_user
 from app.models.user import User, Project
-from app.models.paper import Conversation
+from app.models.paper import Conversation, Paper
 from app.rag import rag_engine
 
 
@@ -52,6 +52,9 @@ class ConversationMessage(BaseModel):
     """对话消息"""
     role: str  # user / assistant
     content: str
+    references: Optional[List[ReferenceItem]] = None
+    metadata: Optional[Dict] = None
+    agent_type: Optional[str] = None
     created_at: datetime
 
 
@@ -61,6 +64,39 @@ class ConversationResponse(BaseModel):
     project_id: Optional[int]
     messages: List[ConversationMessage]
     created_at: datetime
+
+
+async def _enrich_references_with_titles(
+    db: AsyncSession,
+    references: List[dict]
+) -> List[dict]:
+    """批量补全文献标题，避免前端展示“未知文献”"""
+    if not references:
+        return []
+
+    paper_ids = {
+        int(ref.get("paper_id"))
+        for ref in references
+        if isinstance(ref, dict) and ref.get("paper_id")
+    }
+    if not paper_ids:
+        return references
+
+    result = await db.execute(
+        select(Paper.id, Paper.title).where(Paper.id.in_(paper_ids))
+    )
+    id_to_title = {pid: title for pid, title in result.all()}
+
+    enriched = []
+    for ref in references:
+        if not isinstance(ref, dict):
+            enriched.append(ref)
+            continue
+        paper_id = ref.get("paper_id")
+        if paper_id and not ref.get("title"):
+            ref = {**ref, "title": id_to_title.get(int(paper_id))}
+        enriched.append(ref)
+    return enriched
 
 
 # ============ Routes ============
@@ -108,13 +144,28 @@ async def ask_question(
             detail=f"RAG问答失败: {str(e)}"
         )
     
-    # 保存对话
+    # 补全引用标题，提升可读性
+    enriched_refs = await _enrich_references_with_titles(
+        db, result.get("references", [])
+    )
+
+    # 保存对话（包含引用，支持历史回放）
     conversation = Conversation(
         user_id=current_user.id,
         project_id=request.project_id,
         messages=[
             {"role": "user", "content": request.question},
-            {"role": "assistant", "content": result["answer"]}
+            {
+                "role": "assistant",
+                "content": result["answer"],
+                "references": enriched_refs,
+                "metadata": {
+                    "method": result.get("method", "rag"),
+                    "memory_used": result.get("memory_used", False),
+                    "memory_count": result.get("memory_count", 0),
+                },
+                "agent_type": "retriever_agent",
+            }
         ]
     )
     db.add(conversation)
@@ -123,7 +174,7 @@ async def ask_question(
     
     # 构建引用
     references = []
-    for ref in result.get("references", []):
+    for ref in enriched_refs:
         references.append(ReferenceItem(
             paper_id=ref.get("paper_id", 0),
             paper_title=ref.get("title"),
@@ -220,6 +271,20 @@ async def list_conversations(
                 ConversationMessage(
                     role=msg["role"],
                     content=msg["content"],
+                    references=[
+                        ReferenceItem(
+                            paper_id=ref.get("paper_id", 0),
+                            paper_title=ref.get("paper_title") or ref.get("title"),
+                            chunk_index=ref.get("chunk_index", 0),
+                            page_number=ref.get("page_number"),
+                            text=ref.get("text", ""),
+                            score=ref.get("score", 0),
+                        )
+                        for ref in (msg.get("references") or [])
+                        if isinstance(ref, dict)
+                    ] or None,
+                    metadata=msg.get("metadata"),
+                    agent_type=msg.get("agent_type"),
                     created_at=conv.created_at
                 )
                 for msg in (conv.messages or [])
@@ -273,6 +338,20 @@ async def get_conversation(
             ConversationMessage(
                 role=msg["role"],
                 content=msg["content"],
+                references=[
+                    ReferenceItem(
+                        paper_id=ref.get("paper_id", 0),
+                        paper_title=ref.get("paper_title") or ref.get("title"),
+                        chunk_index=ref.get("chunk_index", 0),
+                        page_number=ref.get("page_number"),
+                        text=ref.get("text", ""),
+                        score=ref.get("score", 0),
+                    )
+                    for ref in (msg.get("references") or [])
+                    if isinstance(ref, dict)
+                ] or None,
+                metadata=msg.get("metadata"),
+                agent_type=msg.get("agent_type"),
                 created_at=conversation.created_at
             )
             for msg in (conversation.messages or [])

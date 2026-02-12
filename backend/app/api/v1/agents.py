@@ -16,13 +16,75 @@ import asyncio
 
 from app.core.deps import get_db, get_current_user
 from app.models.user import User, Project
-from app.models.paper import Conversation
+from app.models.paper import Conversation, Paper
 from app.agents.coordinator import agent_coordinator
 from app.agents.base_agent import AgentType
 from app.rag import rag_engine
 
 
 router = APIRouter()
+
+
+async def _enrich_references_with_titles(
+    db: AsyncSession,
+    references: List[dict]
+) -> List[dict]:
+    """批量补全文献标题，避免显示“未知文献”"""
+    if not references:
+        return []
+
+    paper_ids = {
+        int(ref.get("paper_id"))
+        for ref in references
+        if isinstance(ref, dict) and ref.get("paper_id")
+    }
+    if not paper_ids:
+        return references
+
+    result = await db.execute(
+        select(Paper.id, Paper.title).where(Paper.id.in_(paper_ids))
+    )
+    id_to_title = {pid: title for pid, title in result.all()}
+
+    enriched = []
+    for ref in references:
+        if not isinstance(ref, dict):
+            enriched.append(ref)
+            continue
+        paper_id = ref.get("paper_id")
+        if paper_id and not ref.get("title"):
+            ref = {**ref, "title": id_to_title.get(int(paper_id))}
+        enriched.append(ref)
+    return enriched
+
+
+def _normalize_agent_markdown(
+    content: str,
+    references: List[dict],
+    agent_type: str
+) -> str:
+    """
+    对非流式 Agent 输出做轻量结构化，提升前端展示一致性。
+    """
+    text = (content or "").strip()
+    if not text:
+        return text
+    if "## " in text:
+        return text
+
+    source_lines = []
+    for idx, ref in enumerate(references[:8], 1):
+        if not isinstance(ref, dict):
+            continue
+        title = ref.get("title") or ref.get("paper_title") or ref.get("name") or "未知来源"
+        source_lines.append(f"[{idx}] {title}")
+
+    sources = "\n".join(source_lines) if source_lines else "未提供可展示的引用来源。"
+    return (
+        f"## 回答\n{text}\n\n"
+        f"## 处理信息\n- Agent: `{agent_type}`\n- 引用数量: {len(references)}\n\n"
+        f"## 引用来源\n{sources}"
+    )
 
 
 # ============ Schemas ============
@@ -200,7 +262,9 @@ async def agent_stream(
                     event_type = event.get("type")
                     
                     if event_type == "references":
-                        references_data = event["data"]
+                        references_data = await _enrich_references_with_titles(
+                            db, event["data"]
+                        )
                         yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
                     
                     elif event_type == "chunk":
@@ -232,12 +296,19 @@ async def agent_stream(
                     )
                     
                     agent_type_used = response.agent_type
-                    full_content = response.content
+                    full_content = _normalize_agent_markdown(
+                        response.content,
+                        response.references or [],
+                        response.agent_type,
+                    )
                     references_data = response.references
                     metadata_extra = response.metadata
                     
                     # 发送引用
                     if references_data:
+                        references_data = await _enrich_references_with_titles(
+                            db, references_data
+                        )
                         yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
                     
                     # 发送生成中状态
@@ -269,6 +340,7 @@ async def agent_stream(
                         "role": "assistant",
                         "content": full_answer,
                         "agent_type": agent_type_used,
+                        "references": references_data or [],
                         **({"metadata": metadata_extra} if metadata_extra else {}),
                     }
                 ]

@@ -46,9 +46,9 @@ async def build_knowledge_graph(text: str, max_entities: int = 30):
         from app.core.config import settings
 
         llm = ChatOpenAI(
-            model=settings.OPENROUTER_MODEL,
-            api_key=settings.OPENROUTER_API_KEY,
-            base_url=settings.OPENROUTER_BASE_URL,
+            model=settings.EFFECTIVE_LLM_MODEL,
+            api_key=settings.EFFECTIVE_LLM_API_KEY,
+            base_url=settings.EFFECTIVE_LLM_BASE_URL,
             temperature=0,
         )
 
@@ -115,9 +115,9 @@ async def _build_kg_with_llm(text: str, max_entities: int = 30) -> dict:
     from app.core.config import settings
     
     llm = ChatOpenAI(
-        model=settings.OPENROUTER_MODEL,
-        api_key=settings.OPENROUTER_API_KEY,
-        base_url=settings.OPENROUTER_BASE_URL,
+        model=settings.EFFECTIVE_LLM_MODEL,
+        api_key=settings.EFFECTIVE_LLM_API_KEY,
+        base_url=settings.EFFECTIVE_LLM_BASE_URL,
         temperature=0,
     )
     
@@ -429,9 +429,9 @@ async def generate_viz_code(
         from app.core.config import settings
 
         llm = ChatOpenAI(
-            model=getattr(settings, "LLM_MODEL", "gpt-3.5-turbo"),
-            openai_api_key=getattr(settings, "OPENROUTER_API_KEY", ""),
-            openai_api_base=getattr(settings, "OPENROUTER_BASE_URL", ""),
+            model=settings.EFFECTIVE_LLM_MODEL,
+            api_key=settings.EFFECTIVE_LLM_API_KEY,
+            base_url=settings.EFFECTIVE_LLM_BASE_URL,
             temperature=0.2,
         )
 

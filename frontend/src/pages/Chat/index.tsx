@@ -170,9 +170,14 @@ const ChatPage: React.FC = () => {
     };
 
     const handleSelectConversation = async (conv: Conversation) => {
+        const refs = [...(conv.messages || [])]
+            .reverse()
+            .find((m) => m.role === 'assistant' && m.references && m.references.length > 0)
+            ?.references || [];
+
         setActiveConversationId(conv.id);
         setMessages(conv.messages || []);
-        setReferences([]);
+        setReferences(refs);
         setRoutingAgent(null);
         setRoutingLabel(null);
         setStatusMessage(null);
@@ -652,6 +657,11 @@ const ChatPage: React.FC = () => {
                                         {ref.page_number && (
                                             <Text type="secondary"> (第{ref.page_number}页)</Text>
                                         )}
+                                        <div style={{ marginTop: 4 }}>
+                                            <Tag color="blue" style={{ marginInlineEnd: 0 }}>
+                                                相关度 {Number(ref.score || 0).toFixed(3)}
+                                            </Tag>
+                                        </div>
                                         <Paragraph ellipsis={{ rows: 2 }} className="ref-text">
                                             {ref.text}
                                         </Paragraph>

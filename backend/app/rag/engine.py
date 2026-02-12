@@ -187,20 +187,24 @@ class RAGEngine:
             logger.error(f"Failed to ensure paper_vectors collection: {e}")
     
     async def _init_llm(self):
-        """初始化LLM (使用OpenRouter)"""
+        """初始化LLM（OpenAI兼容接口，支持 DeepSeek/OpenRouter）"""
         try:
             from langchain_openai import ChatOpenAI
             self.llm = ChatOpenAI(
-                model=settings.OPENROUTER_MODEL,
-                api_key=settings.OPENROUTER_API_KEY,
-                base_url=settings.OPENROUTER_BASE_URL,
+                model=settings.EFFECTIVE_LLM_MODEL,
+                api_key=settings.EFFECTIVE_LLM_API_KEY,
+                base_url=settings.EFFECTIVE_LLM_BASE_URL,
                 temperature=0.3,
                 default_headers={
                     "HTTP-Referer": "http://localhost:8000",
                     "X-Title": "Literature Analysis Platform"
                 }
             )
-            logger.info(f"LLM initialized with OpenRouter model: {settings.OPENROUTER_MODEL}")
+            logger.info(
+                "LLM initialized: model={} base_url={}",
+                settings.EFFECTIVE_LLM_MODEL,
+                settings.EFFECTIVE_LLM_BASE_URL,
+            )
         except Exception as e:
             logger.warning(f"Failed to initialize LLM: {e}")
             self.llm = None

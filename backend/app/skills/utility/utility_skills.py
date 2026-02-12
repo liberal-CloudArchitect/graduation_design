@@ -257,9 +257,9 @@ async def summarize_with_model(
         from app.core.config import settings
 
         llm = ChatOpenAI(
-            model=getattr(settings, "LLM_MODEL", "gpt-3.5-turbo"),
-            openai_api_key=getattr(settings, "OPENROUTER_API_KEY", ""),
-            openai_api_base=getattr(settings, "OPENROUTER_BASE_URL", ""),
+            model=settings.EFFECTIVE_LLM_MODEL,
+            api_key=settings.EFFECTIVE_LLM_API_KEY,
+            base_url=settings.EFFECTIVE_LLM_BASE_URL,
             temperature=0.3,
             max_tokens=max_length * 2,
         )
@@ -269,7 +269,7 @@ async def summarize_with_model(
 
         return {
             "summary": summary,
-            "model_used": getattr(settings, "LLM_MODEL", "default"),
+            "model_used": settings.EFFECTIVE_LLM_MODEL,
             "char_count": len(summary),
             "provider": "langchain_openai",
         }

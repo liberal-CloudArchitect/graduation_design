@@ -78,7 +78,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
 | REDIS_URL | Redis连接 | redis://localhost:6379/0 |
 | MILVUS_HOST | Milvus地址 | localhost |
 | SECRET_KEY | JWT密钥 | your-secret-key |
-| OPENAI_API_KEY | OpenAI API密钥 | sk-xxx |
+| LLM_API_KEY | LLM API密钥（DeepSeek/OpenRouter） | sk-xxx |
+| LLM_BASE_URL | LLM接口基址 | https://api.deepseek.com |
+| LLM_MODEL | LLM模型名 | deepseek-reasoner |
 
 ---
 

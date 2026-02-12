@@ -50,10 +50,38 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24小时
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
-    # OpenRouter配置 (兼容OpenAI SDK)
+    # 统一 LLM 配置（OpenAI 兼容接口）
+    # 默认切换为 DeepSeek 官方推理模型
+    LLM_API_KEY: Optional[str] = None
+    LLM_BASE_URL: str = "https://api.deepseek.com"
+    LLM_MODEL: str = "deepseek-reasoner"
+
+    # 兼容旧变量（OpenRouter），保留以避免现有部署直接失效
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    OPENROUTER_MODEL: str = "google/gemma-3-12b-it:free"
+    OPENROUTER_MODEL: str = "tngtech/deepseek-r1t2-chimera:free"
+
+    @property
+    def EFFECTIVE_LLM_API_KEY(self) -> Optional[str]:
+        return self.LLM_API_KEY or self.OPENROUTER_API_KEY
+
+    @property
+    def EFFECTIVE_LLM_BASE_URL(self) -> str:
+        # 若显式配置了 LLM_API_KEY，优先使用 LLM_*；
+        # 否则回退到 OPENROUTER_*，兼容旧部署。
+        if self.LLM_API_KEY:
+            return self.LLM_BASE_URL
+        if self.OPENROUTER_API_KEY:
+            return self.OPENROUTER_BASE_URL
+        return self.LLM_BASE_URL
+
+    @property
+    def EFFECTIVE_LLM_MODEL(self) -> str:
+        if self.LLM_API_KEY:
+            return self.LLM_MODEL
+        if self.OPENROUTER_API_KEY:
+            return self.OPENROUTER_MODEL
+        return self.LLM_MODEL
     
     # 文件存储
     UPLOAD_DIR: str = "./uploads"
