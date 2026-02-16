@@ -38,6 +38,11 @@ class ReferenceItem(BaseModel):
     page_number: Optional[int]
     text: str
     score: float
+    display_score: Optional[float] = None
+    raw_score: Optional[float] = None
+    citation_context: Optional[str] = None
+    citation_number: Optional[int] = None
+    citation_spans: Optional[List[Dict]] = None
 
 
 class AnswerResponse(BaseModel):
@@ -55,6 +60,7 @@ class ConversationMessage(BaseModel):
     references: Optional[List[ReferenceItem]] = None
     metadata: Optional[Dict] = None
     agent_type: Optional[str] = None
+    reasoning_content: Optional[str] = None
     created_at: datetime
 
 
@@ -93,8 +99,9 @@ async def _enrich_references_with_titles(
             enriched.append(ref)
             continue
         paper_id = ref.get("paper_id")
-        if paper_id and not ref.get("title"):
-            ref = {**ref, "title": id_to_title.get(int(paper_id))}
+        if paper_id:
+            title = ref.get("paper_title") or ref.get("title") or id_to_title.get(int(paper_id))
+            ref = {**ref, "title": title, "paper_title": title}
         enriched.append(ref)
     return enriched
 
@@ -181,7 +188,12 @@ async def ask_question(
             chunk_index=ref.get("chunk_index", 0),
             page_number=ref.get("page_number"),
             text=ref.get("text", ""),
-            score=ref.get("score", 0)
+            score=ref.get("score", 0),
+            display_score=ref.get("display_score"),
+            raw_score=ref.get("raw_score"),
+            citation_context=ref.get("citation_context"),
+            citation_number=ref.get("citation_number"),
+            citation_spans=ref.get("citation_spans"),
         ))
     
     return AnswerResponse(
@@ -279,12 +291,18 @@ async def list_conversations(
                             page_number=ref.get("page_number"),
                             text=ref.get("text", ""),
                             score=ref.get("score", 0),
+                            display_score=ref.get("display_score"),
+                            raw_score=ref.get("raw_score"),
+                            citation_context=ref.get("citation_context"),
+                            citation_number=ref.get("citation_number"),
+                            citation_spans=ref.get("citation_spans"),
                         )
                         for ref in (msg.get("references") or [])
                         if isinstance(ref, dict)
                     ] or None,
                     metadata=msg.get("metadata"),
                     agent_type=msg.get("agent_type"),
+                    reasoning_content=msg.get("reasoning_content"),
                     created_at=conv.created_at
                 )
                 for msg in (conv.messages or [])
@@ -346,12 +364,18 @@ async def get_conversation(
                         page_number=ref.get("page_number"),
                         text=ref.get("text", ""),
                         score=ref.get("score", 0),
+                        display_score=ref.get("display_score"),
+                        raw_score=ref.get("raw_score"),
+                        citation_context=ref.get("citation_context"),
+                        citation_number=ref.get("citation_number"),
+                        citation_spans=ref.get("citation_spans"),
                     )
                     for ref in (msg.get("references") or [])
                     if isinstance(ref, dict)
                 ] or None,
                 metadata=msg.get("metadata"),
                 agent_type=msg.get("agent_type"),
+                reasoning_content=msg.get("reasoning_content"),
                 created_at=conversation.created_at
             )
             for msg in (conversation.messages or [])

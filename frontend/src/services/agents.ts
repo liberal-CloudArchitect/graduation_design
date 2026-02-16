@@ -7,7 +7,7 @@ export interface AgentRequest {
     project_id?: number;
     agent_type?: string;
     conversation_id?: number;  // 对话ID，用于加载历史上下文
-    params?: Record<string, any>;
+    params?: Record<string, unknown>;
 }
 
 export interface WritingAgentRequest {
@@ -33,10 +33,12 @@ export interface AgentStreamCallbacks {
     onStatus?: (info: { stage: string; message: string }) => void;
     /** 流式文本块 */
     onChunk: (chunk: string) => void;
+    /** 推理内容（思考过程） */
+    onReasoning?: (chunk: string) => void;
     /** 引用来源 */
     onReferences?: (refs: Reference[]) => void;
     /** Agent 元数据（图表数据、skills_used 等） */
-    onMetadata?: (metadata: Record<string, any>) => void;
+    onMetadata?: (metadata: Record<string, unknown>) => void;
     /** 流式结束 */
     onDone: (data: { answer: string; agent_type: string; conversation_id?: number }) => void;
     /** 错误 */
@@ -106,6 +108,9 @@ export const agentsApi = {
                             case 'status':
                                 callbacks.onStatus?.(json.data);
                                 break;
+                            case 'reasoning':
+                                callbacks.onReasoning?.(json.data);
+                                break;
                             case 'chunk':
                                 callbacks.onChunk(json.data);
                                 break;
@@ -128,8 +133,9 @@ export const agentsApi = {
                     }
                 }
             }
-        } catch (error: any) {
-            callbacks.onError(error.message || '请求失败');
+        } catch (error: unknown) {
+            const errorMsg = error instanceof Error ? error.message : '请求失败';
+            callbacks.onError(errorMsg || '请求失败');
         }
     },
 

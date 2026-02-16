@@ -51,8 +51,9 @@ export interface Message {
     content: string;
     created_at: string;
     references?: Reference[];
-    metadata?: Record<string, any>;
+    metadata?: Record<string, unknown>;
     agent_type?: string;
+    reasoning_content?: string;
 }
 
 export interface Conversation {
@@ -71,6 +72,10 @@ export interface Reference {
     page_number?: number;
     text: string;
     score: number;
+    display_score?: number;
+    raw_score?: number;
+    citation_context?: string;
+    citation_number?: number;
 }
 
 export interface AnswerResponse {

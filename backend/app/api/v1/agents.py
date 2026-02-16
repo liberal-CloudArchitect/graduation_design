@@ -4,7 +4,7 @@ Agent API - Multi-Agent系统路由
 包含 Agent 协调问答、多Agent并行处理、流式Agent问答、写作辅助、分析、搜索、
 以及 Skills 管理（列表查询、直接执行）。
 """
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ from sqlalchemy import select
 from loguru import logger
 import json
 import asyncio
+import re
 
 from app.core.deps import get_db, get_current_user
 from app.models.user import User, Project
@@ -23,6 +24,157 @@ from app.rag import rag_engine
 
 
 router = APIRouter()
+
+THINK_OPEN = "<think>"
+THINK_CLOSE = "</think>"
+TOKEN_PATTERN = re.compile(r"[a-z0-9]{3,}|[\u4e00-\u9fff]{2,}", re.IGNORECASE)
+CITATION_PATTERN = re.compile(r"\[(\d{1,3})\]")
+
+
+class ThinkTagStreamParser:
+    """增量解析 <think> 标签，分离 reasoning 与正式答案。"""
+
+    def __init__(self):
+        self.buffer = ""
+        self.in_think = False
+
+    def push(self, chunk: str) -> Tuple[str, str]:
+        text = f"{self.buffer}{chunk or ''}"
+        self.buffer = ""
+        answer_parts: List[str] = []
+        reasoning_parts: List[str] = []
+
+        while text:
+            if self.in_think:
+                close_idx = text.find(THINK_CLOSE)
+                if close_idx < 0:
+                    partial_start = text.rfind("<")
+                    if partial_start >= 0 and THINK_CLOSE.startswith(text[partial_start:]):
+                        reasoning_parts.append(text[:partial_start])
+                        self.buffer = text[partial_start:]
+                    else:
+                        reasoning_parts.append(text)
+                    text = ""
+                    break
+
+                reasoning_parts.append(text[:close_idx])
+                text = text[close_idx + len(THINK_CLOSE):]
+                self.in_think = False
+                continue
+
+            open_idx = text.find(THINK_OPEN)
+            if open_idx < 0:
+                partial_start = text.rfind("<")
+                if partial_start >= 0:
+                    maybe_tag = text[partial_start:]
+                    if THINK_OPEN.startswith(maybe_tag) or THINK_CLOSE.startswith(maybe_tag):
+                        answer_parts.append(text[:partial_start])
+                        self.buffer = maybe_tag
+                        text = ""
+                        break
+                answer_parts.append(text)
+                text = ""
+                break
+
+            answer_parts.append(text[:open_idx])
+            text = text[open_idx + len(THINK_OPEN):]
+            self.in_think = True
+
+        return "".join(answer_parts), "".join(reasoning_parts)
+
+    def flush(self) -> Tuple[str, str]:
+        if not self.buffer:
+            return "", ""
+        pending = self.buffer
+        self.buffer = ""
+        if self.in_think:
+            return "", pending
+        return pending, ""
+
+
+def _normalize_query_tokens(text: str) -> set:
+    if not text:
+        return set()
+    return set(t.lower() for t in TOKEN_PATTERN.findall(text))
+
+
+def _extract_citation_spans(answer: str) -> Dict[str, List[Dict[str, Any]]]:
+    spans: Dict[str, List[Dict[str, Any]]] = {}
+    for match in CITATION_PATTERN.finditer(answer or ""):
+        citation_no = int(match.group(1))
+        key = str(citation_no)
+        start = match.start()
+        end = match.end()
+        ctx_start = max(0, start - 42)
+        ctx_end = min(len(answer), end + 42)
+        context = answer[ctx_start:ctx_end].replace("\n", " ").strip()
+        spans.setdefault(key, []).append(
+            {
+                "start": start,
+                "end": end,
+                "context_start": ctx_start,
+                "context_end": ctx_end,
+                "context": context,
+            }
+        )
+    return spans
+
+
+def _optimize_reference_scores(query: str, references: List[dict], answer: str) -> List[dict]:
+    if not references:
+        return []
+
+    query_tokens = _normalize_query_tokens(query)
+    citation_spans = _extract_citation_spans(answer)
+    cited_numbers = {int(k) for k in citation_spans.keys()}
+
+    raw_scores = [
+        float(ref.get("score", 0))
+        for ref in references
+        if isinstance(ref, dict)
+    ] or [0.0]
+    min_raw, max_raw = min(raw_scores), max(raw_scores)
+
+    optimized: List[dict] = []
+    for idx, ref in enumerate(references, 1):
+        if not isinstance(ref, dict):
+            continue
+
+        raw_score = float(ref.get("score", 0))
+        if max_raw > min_raw:
+            norm_raw = (raw_score - min_raw) / (max_raw - min_raw)
+        else:
+            norm_raw = 0.5
+
+        ref_tokens = _normalize_query_tokens(
+            f"{ref.get('paper_title') or ref.get('title') or ''} {ref.get('text') or ''}"
+        )
+        overlap = (len(query_tokens & ref_tokens) / len(query_tokens)) if query_tokens else 0.0
+        cited_boost = 1.0 if idx in cited_numbers else 0.0
+        display_score = max(0.0, min(1.0, norm_raw * 0.55 + overlap * 0.30 + cited_boost * 0.15))
+
+        ref_spans = citation_spans.get(str(idx), [])
+        optimized.append(
+            {
+                **ref,
+                "paper_title": ref.get("paper_title") or ref.get("title"),
+                "citation_number": idx,
+                "raw_score": round(raw_score, 6),
+                "display_score": round(display_score, 6),
+                "citation_context": ref_spans[0].get("context") if ref_spans else "",
+                "citation_spans": ref_spans,
+                "citation_mentions": len(ref_spans),
+            }
+        )
+
+    return sorted(optimized, key=lambda x: x.get("display_score", 0), reverse=True)
+
+
+def _split_reasoning_content(content: str) -> Tuple[str, str]:
+    parser = ThinkTagStreamParser()
+    answer, reasoning = parser.push(content or "")
+    tail_answer, tail_reasoning = parser.flush()
+    return f"{answer}{tail_answer}", f"{reasoning}{tail_reasoning}".strip()
 
 
 async def _enrich_references_with_titles(
@@ -52,8 +204,9 @@ async def _enrich_references_with_titles(
             enriched.append(ref)
             continue
         paper_id = ref.get("paper_id")
-        if paper_id and not ref.get("title"):
-            ref = {**ref, "title": id_to_title.get(int(paper_id))}
+        if paper_id:
+            title = ref.get("paper_title") or ref.get("title") or id_to_title.get(int(paper_id))
+            ref = {**ref, "title": title, "paper_title": title}
         enriched.append(ref)
     return enriched
 
@@ -174,6 +327,7 @@ async def agent_stream(
     
     SSE 事件类型:
     - routing: 告知前端路由到了哪个 Agent
+    - reasoning: 推理模型思考过程增量
     - chunk: 逐字输出答案内容
     - references: 引用来源
     - metadata: Agent 元数据（图表数据、skills_used 等）
@@ -219,9 +373,11 @@ async def agent_stream(
     async def generate():
         """生成 SSE 流式响应"""
         full_answer = ""
+        reasoning_content = ""
         agent_type_used = routed_type
         references_data = []
         metadata_extra = {}
+        parser = ThinkTagStreamParser()
         
         try:
             # 0. 加载对话历史（如果有 conversation_id）
@@ -265,15 +421,37 @@ async def agent_stream(
                         references_data = await _enrich_references_with_titles(
                             db, event["data"]
                         )
+                        # 先发送一次初始引用，便于前端提前展示
                         yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
                     
                     elif event_type == "chunk":
-                        full_answer += event["data"]
-                        yield f"data: {json.dumps({'type': 'chunk', 'data': event['data']}, ensure_ascii=False)}\n\n"
+                        answer_delta, reasoning_delta = parser.push(str(event.get("data", "")))
+                        if reasoning_delta:
+                            reasoning_content += reasoning_delta
+                            yield f"data: {json.dumps({'type': 'reasoning', 'data': reasoning_delta}, ensure_ascii=False)}\n\n"
+                        if answer_delta:
+                            full_answer += answer_delta
+                            yield f"data: {json.dumps({'type': 'chunk', 'data': answer_delta}, ensure_ascii=False)}\n\n"
                     
                     elif event_type == "done":
                         done_data = event["data"]
-                        full_answer = done_data.get("answer", full_answer)
+                        tail_answer, tail_reasoning = parser.flush()
+                        if tail_reasoning:
+                            reasoning_content += tail_reasoning
+                            yield f"data: {json.dumps({'type': 'reasoning', 'data': tail_reasoning}, ensure_ascii=False)}\n\n"
+                        if tail_answer:
+                            full_answer += tail_answer
+                            yield f"data: {json.dumps({'type': 'chunk', 'data': tail_answer}, ensure_ascii=False)}\n\n"
+
+                        # 兜底：如果上游一次性返回 answer，做一次完整拆分
+                        done_answer = str(done_data.get("answer", "") or "")
+                        if done_answer and not full_answer:
+                            clean_answer, done_reasoning = _split_reasoning_content(done_answer)
+                            full_answer = clean_answer
+                            if done_reasoning:
+                                reasoning_content = f"{reasoning_content}\n{done_reasoning}".strip()
+                                yield f"data: {json.dumps({'type': 'reasoning', 'data': done_reasoning}, ensure_ascii=False)}\n\n"
+
                         metadata_extra = {
                             "method": done_data.get("method", "rag_memory_enhanced"),
                             "memory_used": done_data.get("memory_used", False),
@@ -313,11 +491,20 @@ async def agent_stream(
                     
                     # 发送生成中状态
                     yield f"data: {json.dumps({'type': 'status', 'data': {'stage': 'generating', 'message': '正在生成回复...'}}, ensure_ascii=False)}\n\n"
+
+                    clean_content, content_reasoning = _split_reasoning_content(full_content)
+                    if content_reasoning:
+                        reasoning_content = f"{reasoning_content}\n{content_reasoning}".strip()
+                        reasoning_chunk_size = 60
+                        for i in range(0, len(content_reasoning), reasoning_chunk_size):
+                            reasoning_chunk = content_reasoning[i:i + reasoning_chunk_size]
+                            yield f"data: {json.dumps({'type': 'reasoning', 'data': reasoning_chunk}, ensure_ascii=False)}\n\n"
+                            await asyncio.sleep(0.01)
                     
                     # 逐块发送内容（模拟流式效果）
                     chunk_size = 20  # 每块约20字符
-                    for i in range(0, len(full_content), chunk_size):
-                        text_chunk = full_content[i:i + chunk_size]
+                    for i in range(0, len(clean_content), chunk_size):
+                        text_chunk = clean_content[i:i + chunk_size]
                         full_answer += text_chunk
                         yield f"data: {json.dumps({'type': 'chunk', 'data': text_chunk}, ensure_ascii=False)}\n\n"
                         await asyncio.sleep(0.02)
@@ -327,11 +514,36 @@ async def agent_stream(
                     yield f"data: {json.dumps({'type': 'error', 'data': f'Agent处理失败: {str(e)}'}, ensure_ascii=False)}\n\n"
                     return
             
-            # 4. 发送元数据
+            # 收尾：处理可能残留的半截标签缓存
+            tail_answer, tail_reasoning = parser.flush()
+            if tail_reasoning:
+                reasoning_content += tail_reasoning
+                yield f"data: {json.dumps({'type': 'reasoning', 'data': tail_reasoning}, ensure_ascii=False)}\n\n"
+            if tail_answer:
+                full_answer += tail_answer
+                yield f"data: {json.dumps({'type': 'chunk', 'data': tail_answer}, ensure_ascii=False)}\n\n"
+
+            # 4. 后处理引用：计算 citation 范围与融合相关度
+            if references_data:
+                references_data = _optimize_reference_scores(
+                    request.query,
+                    references_data,
+                    full_answer,
+                )
+                yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
+
+            # 5. 发送元数据
+            citation_spans = _extract_citation_spans(full_answer)
+            metadata_extra = {
+                **(metadata_extra or {}),
+                "reasoning_chars": len(reasoning_content),
+                "citation_spans": citation_spans,
+                "reference_count": len(references_data or []),
+            }
             if metadata_extra:
                 yield f"data: {json.dumps({'type': 'metadata', 'data': metadata_extra}, ensure_ascii=False)}\n\n"
             
-            # 5. 保存对话到数据库（追加到现有对话或创建新对话）
+            # 6. 保存对话到数据库（追加到现有对话或创建新对话）
             conversation_id = None
             try:
                 new_msgs = [
@@ -339,6 +551,7 @@ async def agent_stream(
                     {
                         "role": "assistant",
                         "content": full_answer,
+                        **({"reasoning_content": reasoning_content} if reasoning_content else {}),
                         "agent_type": agent_type_used,
                         "references": references_data or [],
                         **({"metadata": metadata_extra} if metadata_extra else {}),
@@ -378,7 +591,7 @@ async def agent_stream(
             except Exception as e:
                 logger.warning(f"Failed to save conversation in stream: {e}")
             
-            # 6. 发送完成信号
+            # 7. 发送完成信号
             yield f"data: {json.dumps({'type': 'done', 'data': {'answer': full_answer, 'agent_type': agent_type_used, 'conversation_id': conversation_id}}, ensure_ascii=False)}\n\n"
         
         except Exception as e:

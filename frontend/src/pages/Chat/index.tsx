@@ -1,15 +1,15 @@
 // 智能对话页面 - 含对话历史侧栏 + Agent Coordinator 智能路由 + 图表/KG 渲染
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, type ReactNode } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-    Card, Input, Button, List, Typography, Select, Empty,
+    Card, Input, Button, List, Typography, Select, Empty, Modal,
     Avatar, Spin, Popconfirm, message, Tooltip, Tag
 } from 'antd';
 import {
     SendOutlined, RobotOutlined, UserOutlined, FileTextOutlined,
     PlusOutlined, DeleteOutlined, HistoryOutlined,
     SearchOutlined, BarChartOutlined, EditOutlined, BookOutlined,
-    LoadingOutlined
+    LoadingOutlined, BulbOutlined, CopyOutlined, AimOutlined,
 } from '@ant-design/icons';
 import ReactMarkdown from 'react-markdown';
 import { agentsApi } from '../../services/agents';
@@ -21,6 +21,13 @@ import './index.css';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
+
+interface StreamParseState {
+    buffer: string;
+    inThink: boolean;
+    answer: string;
+    reasoning: string;
+}
 
 /** Agent 类型对应的图标和颜色 */
 const AGENT_CONFIG: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
@@ -38,7 +45,7 @@ interface SlashCommand {
     agent_type: string;
     icon: React.ReactNode;
     color: string;
-    params?: Record<string, any>;
+    params?: Record<string, unknown>;
 }
 
 const SLASH_COMMANDS: SlashCommand[] = [
@@ -94,6 +101,269 @@ const SLASH_COMMANDS: SlashCommand[] = [
     },
 ];
 
+const THINK_OPEN = '<think>';
+const THINK_CLOSE = '</think>';
+const INLINE_CITATION_REGEX = /\[(\d{1,3})\]/g;
+
+const normalizeQueryTokens = (text: string): string[] => {
+    const tokens = text
+        .toLowerCase()
+        .match(/[a-z0-9]{3,}|[\u4e00-\u9fff]{2,}/g);
+    return tokens ? Array.from(new Set(tokens)) : [];
+};
+
+const parseCitationNumbers = (text: string): number[] => {
+    const hit = new Set<number>();
+    const regex = /\[(\d{1,3})\]/g;
+    let m: RegExpExecArray | null = regex.exec(text);
+    while (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n) && n > 0) hit.add(n);
+        m = regex.exec(text);
+    }
+    return Array.from(hit).sort((a, b) => a - b);
+};
+
+const buildCitationContext = (answer: string, citationNo: number): string => {
+    const marker = `[${citationNo}]`;
+    const idx = answer.indexOf(marker);
+    if (idx < 0) return '';
+    const start = Math.max(0, idx - 42);
+    const end = Math.min(answer.length, idx + marker.length + 42);
+    return answer.slice(start, end).replace(/\n/g, ' ').trim();
+};
+
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const highlightText = (text: string, keywords: string[]): React.ReactNode => {
+    const valid = keywords.filter((k) => k.length >= 2).slice(0, 4);
+    if (!valid.length) return text;
+
+    const regex = new RegExp(`(${valid.map((k) => escapeRegExp(k)).join('|')})`, 'ig');
+    const parts = text.split(regex);
+
+    return parts.map((part, idx) => {
+        const matched = valid.some((k) => part.toLowerCase() === k.toLowerCase());
+        return matched ? <mark key={`${part}-${idx}`}>{part}</mark> : <React.Fragment key={`${part}-${idx}`}>{part}</React.Fragment>;
+    });
+};
+
+const renderTextWithInlineCitations = (
+    text: string,
+    keyPrefix: string,
+    activeCitationNo: number | null,
+    focusedCitationNo: number | null,
+    onCitationClick: (citationNo: number) => void
+): ReactNode => {
+    const nodes: ReactNode[] = [];
+    let last = 0;
+    let match = INLINE_CITATION_REGEX.exec(text);
+    let idx = 0;
+
+    while (match) {
+        const start = match.index;
+        const end = start + match[0].length;
+        const citationNo = Number(match[1]);
+
+        if (start > last) {
+            nodes.push(text.slice(last, start));
+        }
+
+        const active = activeCitationNo === citationNo;
+        const focused = focusedCitationNo === citationNo;
+        nodes.push(
+            <button
+                key={`${keyPrefix}-inline-cite-${idx}`}
+                type="button"
+                data-inline-cite={citationNo}
+                className={`inline-citation-btn ${active ? 'active' : ''} ${focused ? 'focused' : ''}`}
+                onClick={() => onCitationClick(citationNo)}
+            >
+                [{citationNo}]
+            </button>
+        );
+
+        idx += 1;
+        last = end;
+        match = INLINE_CITATION_REGEX.exec(text);
+    }
+    INLINE_CITATION_REGEX.lastIndex = 0;
+
+    if (last < text.length) {
+        nodes.push(text.slice(last));
+    }
+    return nodes.length ? nodes : text;
+};
+
+const renderInlineCitationNode = (
+    node: ReactNode,
+    keyPrefix: string,
+    activeCitationNo: number | null,
+    focusedCitationNo: number | null,
+    onCitationClick: (citationNo: number) => void
+): ReactNode => {
+    if (typeof node === 'string') {
+        return renderTextWithInlineCitations(
+            node,
+            keyPrefix,
+            activeCitationNo,
+            focusedCitationNo,
+            onCitationClick
+        );
+    }
+
+    if (Array.isArray(node)) {
+        return node.map((child, idx) =>
+            renderInlineCitationNode(
+                child,
+                `${keyPrefix}-${idx}`,
+                activeCitationNo,
+                focusedCitationNo,
+                onCitationClick
+            )
+        );
+    }
+
+    if (React.isValidElement(node)) {
+        const elementTag = typeof node.type === 'string' ? node.type : '';
+        if (['code', 'pre', 'a'].includes(elementTag)) {
+            return node;
+        }
+
+        const props = node.props as { children?: ReactNode };
+        if (!props?.children) return node;
+
+        const nextChildren = renderInlineCitationNode(
+            props.children,
+            `${keyPrefix}-child`,
+            activeCitationNo,
+            focusedCitationNo,
+            onCitationClick
+        );
+        return React.cloneElement(node, undefined, nextChildren);
+    }
+
+    return node;
+};
+
+const extractReasoningFromText = (raw: string): { answer: string; reasoning: string } => {
+    if (!raw.includes(THINK_OPEN)) {
+        return { answer: raw, reasoning: '' };
+    }
+
+    const parts: string[] = [];
+    let answer = raw;
+    const regex = /<think>([\s\S]*?)<\/think>/g;
+    answer = answer.replace(regex, (_match, group: string) => {
+        if (group?.trim()) parts.push(group.trim());
+        return '';
+    });
+
+    return {
+        answer: answer.trimStart(),
+        reasoning: parts.join('\n\n').trim(),
+    };
+};
+
+const consumeStreamChunk = (state: StreamParseState, chunk: string): StreamParseState => {
+    let text = `${state.buffer}${chunk}`;
+    let nextBuffer = '';
+    let inThink = state.inThink;
+    let answer = state.answer;
+    let reasoning = state.reasoning;
+
+    while (text.length > 0) {
+        if (inThink) {
+            const closeIdx = text.indexOf(THINK_CLOSE);
+            if (closeIdx < 0) {
+                reasoning += text;
+                text = '';
+                break;
+            }
+            reasoning += text.slice(0, closeIdx);
+            text = text.slice(closeIdx + THINK_CLOSE.length);
+            inThink = false;
+            continue;
+        }
+
+        const openIdx = text.indexOf(THINK_OPEN);
+        if (openIdx < 0) {
+            const partialStart = text.lastIndexOf('<');
+            if (partialStart >= 0) {
+                const maybeTag = text.slice(partialStart);
+                if (THINK_OPEN.startsWith(maybeTag) || THINK_CLOSE.startsWith(maybeTag)) {
+                    answer += text.slice(0, partialStart);
+                    nextBuffer = maybeTag;
+                    text = '';
+                    break;
+                }
+            }
+            answer += text;
+            text = '';
+            break;
+        }
+
+        answer += text.slice(0, openIdx);
+        text = text.slice(openIdx + THINK_OPEN.length);
+        inThink = true;
+    }
+
+    return {
+        buffer: nextBuffer,
+        inThink,
+        answer,
+        reasoning,
+    };
+};
+
+const normalizeConversationMessages = (msgs: Message[]): Message[] =>
+    msgs.map((m) => {
+        if (m.role !== 'assistant') return m;
+        const parsed = extractReasoningFromText(m.content || '');
+        return {
+            ...m,
+            content: parsed.answer,
+            reasoning_content: m.reasoning_content || parsed.reasoning,
+        };
+    });
+
+const computeDisplayReferences = (refs: Reference[], query: string, answer: string): Reference[] => {
+    if (!refs.length) return [];
+
+    const rawScores = refs.map((r) => Number(r.score || 0));
+    const maxRaw = Math.max(...rawScores);
+    const minRaw = Math.min(...rawScores);
+    const queryTokens = normalizeQueryTokens(query);
+    const querySet = new Set(queryTokens);
+    const citedNumbers = new Set(parseCitationNumbers(answer));
+
+    const normalized = refs.map((ref, idx) => {
+        const raw = Number(ref.score || 0);
+        const rawNorm = maxRaw > minRaw ? (raw - minRaw) / (maxRaw - minRaw) : 0.5;
+
+        const refTokens = new Set(normalizeQueryTokens(`${ref.paper_title || ''} ${ref.text || ''}`));
+        let overlapCount = 0;
+        querySet.forEach((t) => {
+            if (refTokens.has(t)) overlapCount += 1;
+        });
+        const overlap = querySet.size ? overlapCount / querySet.size : 0;
+        const citationNo = idx + 1;
+        const citedBoost = citedNumbers.has(citationNo) ? 1 : 0;
+
+        const displayScore = Math.max(0, Math.min(1, rawNorm * 0.55 + overlap * 0.3 + citedBoost * 0.15));
+
+        return {
+            ...ref,
+            raw_score: raw,
+            display_score: displayScore,
+            citation_number: citationNo,
+            citation_context: buildCitationContext(answer, citationNo),
+        };
+    });
+
+    return normalized.sort((a, b) => (b.display_score || 0) - (a.display_score || 0));
+};
+
 const ChatPage: React.FC = () => {
     const { projectId: routeProjectId } = useParams<{ projectId: string }>();
 
@@ -105,8 +375,19 @@ const ChatPage: React.FC = () => {
     const [selectedProject, setSelectedProject] = useState<number | undefined>(
         routeProjectId ? Number(routeProjectId) : undefined
     );
-    const [references, setReferences] = useState<Reference[]>([]);
+    const [historyProjectFilter, setHistoryProjectFilter] = useState<number | undefined>(
+        routeProjectId ? Number(routeProjectId) : undefined
+    );
+    const HISTORY_ALL_VALUE = -1;
+    const [rawReferences, setRawReferences] = useState<Reference[]>([]);
+    const [latestQuery, setLatestQuery] = useState('');
+    const [activeReferenceIndex, setActiveReferenceIndex] = useState<number | null>(null);
+    const [focusedCitationNo, setFocusedCitationNo] = useState<number | null>(null);
+    const [expandedReasoning, setExpandedReasoning] = useState<Record<string, boolean>>({});
+    const [previewRef, setPreviewRef] = useState<Reference | null>(null);
+    const [previewOpen, setPreviewOpen] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const latestAssistantRef = useRef<HTMLDivElement | null>(null);
 
     // Agent routing state
     const [routingAgent, setRoutingAgent] = useState<string | null>(null);
@@ -121,7 +402,13 @@ const ChatPage: React.FC = () => {
     const [conversationsLoading, setConversationsLoading] = useState(false);
 
     // Ref to accumulate metadata during streaming
-    const pendingMetadataRef = useRef<Record<string, any> | null>(null);
+    const pendingMetadataRef = useRef<Record<string, unknown> | null>(null);
+    const streamParseRef = useRef<StreamParseState>({
+        buffer: '',
+        inThink: false,
+        answer: '',
+        reasoning: '',
+    });
 
     // Slash command state
     const [showSlashMenu, setShowSlashMenu] = useState(false);
@@ -134,14 +421,45 @@ const ChatPage: React.FC = () => {
             cmd.description.includes(slashFilter)
     );
 
+    const latestAssistantContent = useMemo(
+        () => [...messages].reverse().find((m) => m.role === 'assistant')?.content || '',
+        [messages]
+    );
+
+    const references = useMemo(
+        () => computeDisplayReferences(rawReferences, latestQuery, latestAssistantContent),
+        [rawReferences, latestQuery, latestAssistantContent]
+    );
+
+    const queryKeywords = useMemo(() => normalizeQueryTokens(latestQuery), [latestQuery]);
+    const lastAssistantIndex = useMemo(
+        () => messages.map((m, i) => ({ m, i })).filter((x) => x.m.role === 'assistant').map((x) => x.i).at(-1) ?? -1,
+        [messages]
+    );
+
     useEffect(() => {
         loadProjects();
-        loadConversations();
     }, []);
+
+    useEffect(() => {
+        loadConversations(historyProjectFilter);
+    }, [historyProjectFilter]);
 
     useEffect(() => {
         scrollToBottom();
     }, [messages]);
+
+    useEffect(() => {
+        if (!activeConversationId) return;
+        const stillVisible = conversations.some((conv) => conv.id === activeConversationId);
+        if (!stillVisible) {
+            setActiveConversationId(null);
+            setMessages([]);
+            setRawReferences([]);
+            setActiveReferenceIndex(null);
+            setFocusedCitationNo(null);
+        }
+    }, [activeConversationId, conversations]);
 
     const loadProjects = async () => {
         try {
@@ -152,16 +470,16 @@ const ChatPage: React.FC = () => {
         }
     };
 
-    const loadConversations = async () => {
+    const loadConversations = async (projectId?: number) => {
         setConversationsLoading(true);
         try {
-            const { data } = await ragApi.getConversations(undefined, 50);
+            const { data } = await ragApi.getConversations(projectId, 100);
             setConversations(data);
-        } catch (error: any) {
-            // 401 由 axios interceptor 自动刷新 token 并重试；
-            // 若刷新也失败则跳转登录，此处无需额外处理。
-            // 其它错误仅记录日志，不影响主流程。
-            if (error?.response?.status !== 401) {
+        } catch (error: unknown) {
+            const status = typeof error === 'object' && error !== null && 'response' in error
+                ? (error as { response?: { status?: number } }).response?.status
+                : undefined;
+            if (status !== 401) {
                 console.error('Failed to load conversations:', error);
             }
         } finally {
@@ -170,14 +488,20 @@ const ChatPage: React.FC = () => {
     };
 
     const handleSelectConversation = async (conv: Conversation) => {
-        const refs = [...(conv.messages || [])]
+        const normalizedMessages = normalizeConversationMessages(conv.messages || []);
+        const refs = [...normalizedMessages]
             .reverse()
             .find((m) => m.role === 'assistant' && m.references && m.references.length > 0)
             ?.references || [];
 
+        const lastUser = [...normalizedMessages].reverse().find((m) => m.role === 'user')?.content || '';
+
         setActiveConversationId(conv.id);
-        setMessages(conv.messages || []);
-        setReferences(refs);
+        setMessages(normalizedMessages);
+        setRawReferences(refs);
+        setLatestQuery(lastUser);
+        setActiveReferenceIndex(null);
+        setFocusedCitationNo(null);
         setRoutingAgent(null);
         setRoutingLabel(null);
         setStatusMessage(null);
@@ -189,10 +513,19 @@ const ChatPage: React.FC = () => {
     const handleNewConversation = () => {
         setActiveConversationId(null);
         setMessages([]);
-        setReferences([]);
+        setRawReferences([]);
+        setLatestQuery('');
+        setActiveReferenceIndex(null);
+        setFocusedCitationNo(null);
         setRoutingAgent(null);
         setRoutingLabel(null);
         setStatusMessage(null);
+        streamParseRef.current = {
+            buffer: '',
+            inThink: false,
+            answer: '',
+            reasoning: '',
+        };
     };
 
     const handleDeleteConversation = async (convId: number) => {
@@ -212,8 +545,106 @@ const ChatPage: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
+    const flashCitation = (citationNo: number) => {
+        setFocusedCitationNo(citationNo);
+        window.setTimeout(() => {
+            setFocusedCitationNo((prev) => (prev === citationNo ? null : prev));
+        }, 1800);
+    };
+
+    const findBestAnswerTarget = (container: HTMLElement, ref: Reference): HTMLElement | null => {
+        const candidates = Array.from(container.querySelectorAll<HTMLElement>('p, li, blockquote, h1, h2, h3, h4, h5, h6'));
+        if (!candidates.length) return null;
+
+        let refSectionTop = Number.POSITIVE_INFINITY;
+        candidates.forEach((el) => {
+            const text = (el.textContent || '').trim();
+            if (text.includes('参考来源') || text.includes('引用来源')) {
+                refSectionTop = Math.min(refSectionTop, el.offsetTop);
+            }
+        });
+
+        const targetNo = ref.citation_number || 0;
+        const contextTokens = normalizeQueryTokens(ref.citation_context || '');
+        let best: { score: number; el: HTMLElement | null } = { score: -1, el: null };
+
+        candidates.forEach((el) => {
+            const text = (el.textContent || '').trim();
+            if (!text) return;
+
+            const textTokens = normalizeQueryTokens(text);
+            let overlap = 0;
+            contextTokens.forEach((t) => {
+                if (textTokens.includes(t)) overlap += 1;
+            });
+
+            const overlapScore = contextTokens.length ? overlap / contextTokens.length : 0;
+            const markerScore = targetNo && text.includes(`[${targetNo}]`) ? 0.6 : 0;
+            const sectionPenalty = el.offsetTop > refSectionTop ? -0.35 : 0;
+            const score = overlapScore + markerScore + sectionPenalty;
+
+            if (score > best.score) {
+                best = { score, el };
+            }
+        });
+
+        if (best.el && best.score > 0.1) return best.el;
+        if (targetNo) {
+            return candidates.find((el) => (el.textContent || '').includes(`[${targetNo}]`)) || null;
+        }
+        return null;
+    };
+
+    const scrollToCitationMarker = (ref: Reference) => {
+        const container = latestAssistantRef.current;
+        const citationNo = ref.citation_number || 1;
+
+        if (container) {
+            const inlineEl = container.querySelector<HTMLElement>(`[data-inline-cite="${citationNo}"]`);
+            if (inlineEl) {
+                inlineEl.classList.add('inline-citation-focus');
+                inlineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                flashCitation(citationNo);
+                window.setTimeout(() => inlineEl.classList.remove('inline-citation-focus'), 2000);
+                return;
+            }
+
+            const prevHighlighted = container.querySelectorAll('.citation-target-highlight');
+            prevHighlighted.forEach((node) => node.classList.remove('citation-target-highlight'));
+
+            const targetEl = findBestAnswerTarget(container, ref);
+            if (targetEl) {
+                targetEl.classList.add('citation-target-highlight');
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                flashCitation(citationNo);
+                window.setTimeout(() => targetEl.classList.remove('citation-target-highlight'), 2200);
+                return;
+            }
+        }
+
+        // 兜底回退到锚点按钮区
+        const markerEl = document.querySelector<HTMLElement>(`[data-citation-marker="${citationNo}"]`);
+        if (markerEl) {
+            markerEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            flashCitation(citationNo);
+        }
+    };
+
+    const handleInlineCitationClick = (citationNo: number) => {
+        setActiveReferenceIndex(citationNo - 1);
+        scrollToReferenceCard(citationNo);
+    };
+
+    const scrollToReferenceCard = (citationNo: number) => {
+        const refEl = document.getElementById(`ref-card-${citationNo}`);
+        if (refEl) {
+            refEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            flashCitation(citationNo);
+        }
+    };
+
     // Parse slash commands from input
-    const parseSlashCommand = (text: string): { query: string; agent_type?: string; params?: Record<string, any> } => {
+    const parseSlashCommand = (text: string): { query: string; agent_type?: string; params?: Record<string, unknown> } => {
         const trimmed = text.trim();
         for (const cmd of SLASH_COMMANDS) {
             if (trimmed.toLowerCase().startsWith(cmd.command)) {
@@ -268,13 +699,20 @@ const ChatPage: React.FC = () => {
         setMessages((prev) => [...prev, userMessage]);
         setInput('');
         setLoading(true);
-        setReferences([]);
+        setRawReferences([]);
+        setActiveReferenceIndex(null);
+        setFocusedCitationNo(null);
+        setLatestQuery(parsed.query || input);
         setRoutingAgent(null);
         setRoutingLabel(null);
         setStatusMessage(null);
         pendingMetadataRef.current = null;
-
-        let assistantContent = '';
+        streamParseRef.current = {
+            buffer: '',
+            inThink: false,
+            answer: '',
+            reasoning: '',
+        };
 
         try {
             await agentsApi.stream(
@@ -294,17 +732,42 @@ const ChatPage: React.FC = () => {
                         setStatusMessage(info.message);
                     },
                     onChunk: (chunk) => {
-                        setStatusMessage(null); // clear status once content starts
-                        assistantContent += chunk;
+                        setStatusMessage(null);
+                        streamParseRef.current = consumeStreamChunk(streamParseRef.current, chunk);
+
+                        setMessages((prev) => {
+                            const updated = [...prev];
+                            const lastMsg = updated[updated.length - 1];
+                            const nextContent = streamParseRef.current.answer;
+                            const nextReasoning = streamParseRef.current.reasoning.trim();
+
+                            if (lastMsg?.role === 'assistant') {
+                                lastMsg.content = nextContent;
+                                lastMsg.reasoning_content = nextReasoning;
+                            } else {
+                                updated.push({
+                                    role: 'assistant',
+                                    content: nextContent,
+                                    reasoning_content: nextReasoning,
+                                    created_at: new Date().toISOString(),
+                                });
+                            }
+                            return [...updated];
+                        });
+                    },
+                    onReasoning: (chunk) => {
+                        if (!chunk) return;
+                        setStatusMessage(null);
                         setMessages((prev) => {
                             const updated = [...prev];
                             const lastMsg = updated[updated.length - 1];
                             if (lastMsg?.role === 'assistant') {
-                                lastMsg.content = assistantContent;
+                                lastMsg.reasoning_content = `${lastMsg.reasoning_content || ''}${chunk}`;
                             } else {
                                 updated.push({
                                     role: 'assistant',
-                                    content: assistantContent,
+                                    content: '',
+                                    reasoning_content: chunk,
                                     created_at: new Date().toISOString(),
                                 });
                             }
@@ -312,10 +775,9 @@ const ChatPage: React.FC = () => {
                         });
                     },
                     onReferences: (refs) => {
-                        setReferences(refs);
+                        setRawReferences(refs);
                     },
                     onMetadata: (metadata) => {
-                        // Store metadata and attach to the current assistant message
                         pendingMetadataRef.current = metadata;
                         setMessages((prev) => {
                             const updated = [...prev];
@@ -329,22 +791,33 @@ const ChatPage: React.FC = () => {
                     onDone: (data) => {
                         setLoading(false);
                         setStatusMessage(null);
-                        // Attach final metadata if not yet attached
-                        if (pendingMetadataRef.current) {
-                            setMessages((prev) => {
-                                const updated = [...prev];
-                                const lastMsg = updated[updated.length - 1];
-                                if (lastMsg?.role === 'assistant') {
-                                    lastMsg.metadata = pendingMetadataRef.current!;
-                                    lastMsg.agent_type = data.agent_type;
+
+                        setMessages((prev) => {
+                            const updated = [...prev];
+                            const lastMsg = updated[updated.length - 1];
+                            if (lastMsg?.role === 'assistant') {
+                                const fallback = extractReasoningFromText(data.answer || '');
+                                if (!lastMsg.content && fallback.answer) {
+                                    lastMsg.content = fallback.answer;
                                 }
-                                return [...updated];
-                            });
-                        }
+                                if (!lastMsg.reasoning_content && fallback.reasoning) {
+                                    lastMsg.reasoning_content = fallback.reasoning;
+                                }
+                                if (lastMsg.content?.includes(THINK_OPEN) || lastMsg.content?.includes(THINK_CLOSE)) {
+                                    lastMsg.content = fallback.answer || lastMsg.content;
+                                }
+                                if (pendingMetadataRef.current) {
+                                    lastMsg.metadata = pendingMetadataRef.current;
+                                }
+                                lastMsg.agent_type = data.agent_type;
+                            }
+                            return [...updated];
+                        });
+
                         if (data.conversation_id) {
                             setActiveConversationId(data.conversation_id);
                         }
-                        loadConversations();
+                        loadConversations(historyProjectFilter);
                     },
                     onError: (error) => {
                         setMessages((prev) => [
@@ -360,7 +833,7 @@ const ChatPage: React.FC = () => {
                     },
                 }
             );
-        } catch (error) {
+        } catch {
             setLoading(false);
             setStatusMessage(null);
         }
@@ -400,10 +873,15 @@ const ChatPage: React.FC = () => {
         const firstUserMsg = conv.messages?.find((m) => m.role === 'user');
         if (firstUserMsg) {
             return firstUserMsg.content.length > 30
-                ? firstUserMsg.content.substring(0, 30) + '...'
+                ? `${firstUserMsg.content.substring(0, 30)}...`
                 : firstUserMsg.content;
         }
         return '新对话';
+    };
+
+    const getProjectName = (projectId?: number) => {
+        if (!projectId) return '未绑定项目';
+        return projects.find((p) => p.id === projectId)?.name || `项目 #${projectId}`;
     };
 
     // Suggested questions for empty state - showcasing different Agent capabilities
@@ -429,6 +907,19 @@ const ChatPage: React.FC = () => {
                         />
                     </Tooltip>
                 </div>
+                <div className="history-filter-row">
+                    <Select
+                        size="small"
+                        style={{ width: '100%' }}
+                        value={historyProjectFilter ?? HISTORY_ALL_VALUE}
+                        onChange={(v) => setHistoryProjectFilter(v === HISTORY_ALL_VALUE ? undefined : v)}
+                        placeholder="按项目筛选历史"
+                        options={[
+                            { label: '全部项目', value: HISTORY_ALL_VALUE },
+                            ...projects.map((p) => ({ label: p.name, value: p.id })),
+                        ]}
+                    />
+                </div>
                 <div className="history-list">
                     {conversationsLoading ? (
                         <div style={{ textAlign: 'center', padding: 24 }}><Spin size="small" /></div>
@@ -443,9 +934,12 @@ const ChatPage: React.FC = () => {
                                     <Text ellipsis className="history-title">
                                         {getConversationTitle(conv)}
                                     </Text>
-                                    <Text type="secondary" className="history-date">
-                                        {new Date(conv.created_at).toLocaleDateString()}
-                                    </Text>
+                                    <div className="history-subline">
+                                        <Text type="secondary" className="history-date">
+                                            {new Date(conv.created_at).toLocaleDateString()}
+                                        </Text>
+                                        <Tag className="history-project-tag">{getProjectName(conv.project_id)}</Tag>
+                                    </div>
                                 </div>
                                 <Popconfirm
                                     title="删除此对话？"
@@ -491,7 +985,7 @@ const ChatPage: React.FC = () => {
                     <Select
                         placeholder="选择项目范围"
                         allowClear
-                        style={{ width: 200 }}
+                        style={{ width: 220 }}
                         value={selectedProject}
                         onChange={setSelectedProject}
                         options={projects.map((p) => ({ label: p.name, value: p.id }))}
@@ -535,27 +1029,145 @@ const ChatPage: React.FC = () => {
                     ) : (
                         <List
                             dataSource={messages}
-                            renderItem={(msg) => (
-                                <div className={`message-item ${msg.role}`}>
-                                    <Avatar
-                                        icon={msg.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
-                                        className={`message-avatar ${msg.role}`}
-                                    />
-                                    <div className="message-content">
-                                        {msg.role === 'assistant' ? (
-                                            <>
-                                                <div className="message-text markdown-body">
-                                                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-                                                </div>
-                                                {/* Render charts/KG/tables from metadata */}
-                                                {msg.metadata && <ChatChartRenderer metadata={msg.metadata} />}
-                                            </>
-                                        ) : (
-                                            <Paragraph className="message-text">{msg.content}</Paragraph>
-                                        )}
+                            renderItem={(msg, msgIdx) => {
+                                const reasoningText = msg.reasoning_content?.trim();
+                                const msgKey = `${msg.created_at}-${msgIdx}`;
+
+                                return (
+                                    <div className={`message-item ${msg.role}`}>
+                                        <Avatar
+                                            icon={msg.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
+                                            className={`message-avatar ${msg.role}`}
+                                        />
+                                        <div
+                                            className="message-content"
+                                            ref={msgIdx === lastAssistantIndex ? (node) => { latestAssistantRef.current = node; } : undefined}
+                                        >
+                                            {msg.role === 'assistant' ? (
+                                                <>
+                                                    {reasoningText && (
+                                                        <div className="reasoning-panel">
+                                                            <div
+                                                                className="reasoning-header"
+                                                                role="button"
+                                                                tabIndex={0}
+                                                                onClick={() => setExpandedReasoning((prev) => ({ ...prev, [msgKey]: !prev[msgKey] }))}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter' || e.key === ' ') {
+                                                                        e.preventDefault();
+                                                                        setExpandedReasoning((prev) => ({ ...prev, [msgKey]: !prev[msgKey] }));
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                                    <BulbOutlined style={{ color: '#d97706' }} />
+                                                                    <Text strong>{loading ? '思考中' : '思考过程'}</Text>
+                                                                </div>
+                                                                <Button
+                                                                    type="text"
+                                                                    size="small"
+                                                                    icon={<CopyOutlined />}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        navigator.clipboard?.writeText(reasoningText);
+                                                                        message.success('思考过程已复制');
+                                                                    }}
+                                                                >
+                                                                    复制
+                                                                </Button>
+                                                            </div>
+                                                            {expandedReasoning[msgKey] && (
+                                                                <div className="reasoning-body">
+                                                                    {reasoningText}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+
+                                                    <div className="message-text markdown-body">
+                                                        <ReactMarkdown
+                                                            components={{
+                                                                p: ({ children }) => (
+                                                                    <p>
+                                                                        {renderInlineCitationNode(
+                                                                            children,
+                                                                            `${msgKey}-p`,
+                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            focusedCitationNo,
+                                                                            handleInlineCitationClick
+                                                                        )}
+                                                                    </p>
+                                                                ),
+                                                                li: ({ children }) => (
+                                                                    <li>
+                                                                        {renderInlineCitationNode(
+                                                                            children,
+                                                                            `${msgKey}-li`,
+                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            focusedCitationNo,
+                                                                            handleInlineCitationClick
+                                                                        )}
+                                                                    </li>
+                                                                ),
+                                                                blockquote: ({ children }) => (
+                                                                    <blockquote>
+                                                                        {renderInlineCitationNode(
+                                                                            children,
+                                                                            `${msgKey}-blockquote`,
+                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            focusedCitationNo,
+                                                                            handleInlineCitationClick
+                                                                        )}
+                                                                    </blockquote>
+                                                                ),
+                                                                h1: ({ children }) => (
+                                                                    <h1>
+                                                                        {renderInlineCitationNode(
+                                                                            children,
+                                                                            `${msgKey}-h1`,
+                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            focusedCitationNo,
+                                                                            handleInlineCitationClick
+                                                                        )}
+                                                                    </h1>
+                                                                ),
+                                                                h2: ({ children }) => (
+                                                                    <h2>
+                                                                        {renderInlineCitationNode(
+                                                                            children,
+                                                                            `${msgKey}-h2`,
+                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            focusedCitationNo,
+                                                                            handleInlineCitationClick
+                                                                        )}
+                                                                    </h2>
+                                                                ),
+                                                                h3: ({ children }) => (
+                                                                    <h3>
+                                                                        {renderInlineCitationNode(
+                                                                            children,
+                                                                            `${msgKey}-h3`,
+                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            focusedCitationNo,
+                                                                            handleInlineCitationClick
+                                                                        )}
+                                                                    </h3>
+                                                                ),
+                                                            }}
+                                                        >
+                                                            {msg.content}
+                                                        </ReactMarkdown>
+                                                    </div>
+
+                                                    {msg.metadata && <ChatChartRenderer metadata={msg.metadata} />}
+                                                </>
+                                            ) : (
+                                                <Paragraph className="message-text">{msg.content}</Paragraph>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                );
+                            }}
                         />
                     )}
                     {loading && (
@@ -649,25 +1261,65 @@ const ChatPage: React.FC = () => {
                         <List
                             size="small"
                             dataSource={references}
-                            renderItem={(ref, index) => (
-                                <List.Item className="reference-item">
-                                    <div>
-                                        <Text strong>[{index + 1}]</Text>
-                                        <Text className="ref-title">{ref.paper_title || '未知文献'}</Text>
-                                        {ref.page_number && (
-                                            <Text type="secondary"> (第{ref.page_number}页)</Text>
-                                        )}
-                                        <div style={{ marginTop: 4 }}>
-                                            <Tag color="blue" style={{ marginInlineEnd: 0 }}>
-                                                相关度 {Number(ref.score || 0).toFixed(3)}
-                                            </Tag>
+                            rowKey={(ref) => String(ref.citation_number || 0)}
+                            renderItem={(ref) => {
+                                const citationNo = ref.citation_number || 1;
+                                const active = activeReferenceIndex === citationNo - 1 || focusedCitationNo === citationNo;
+
+                                return (
+                                    <List.Item
+                                        className={`reference-item ${active ? 'active' : ''}`}
+                                        id={`ref-card-${citationNo}`}
+                                        onClick={() => {
+                                            setActiveReferenceIndex(citationNo - 1);
+                                            setPreviewRef(ref);
+                                            setPreviewOpen(true);
+                                        }}
+                                    >
+                                        <div>
+                                            <div className="ref-top-row">
+                                                <Text strong>[{citationNo}]</Text>
+                                                <Button
+                                                    type="text"
+                                                    size="small"
+                                                    icon={<AimOutlined />}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveReferenceIndex(citationNo - 1);
+                                                        scrollToCitationMarker(ref);
+                                                    }}
+                                                >
+                                                    定位
+                                                </Button>
+                                            </div>
+                                            <Text className="ref-title">{ref.paper_title || '未知文献'}</Text>
+                                            {ref.page_number && (
+                                                <Text type="secondary"> (第{ref.page_number}页)</Text>
+                                            )}
+
+                                            <div className="ref-score-row">
+                                                <Tag color={active ? 'geekblue' : 'blue'} style={{ marginInlineEnd: 6 }}>
+                                                    相关度 {Math.round((ref.display_score || 0) * 100)}%
+                                                </Tag>
+                                                <Tag>原始分 {Number(ref.raw_score ?? ref.score ?? 0).toFixed(3)}</Tag>
+                                            </div>
+
+                                            {ref.citation_context && (
+                                                <div className="citation-context-box">
+                                                    <Text type="secondary" style={{ fontSize: 12 }}>引用范围</Text>
+                                                    <div className="citation-context-text">
+                                                        {highlightText(ref.citation_context, queryKeywords)}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <Paragraph ellipsis={{ rows: 3 }} className="ref-text">
+                                                {highlightText(ref.text, queryKeywords)}
+                                            </Paragraph>
                                         </div>
-                                        <Paragraph ellipsis={{ rows: 2 }} className="ref-text">
-                                            {ref.text}
-                                        </Paragraph>
-                                    </div>
-                                </List.Item>
-                            )}
+                                    </List.Item>
+                                );
+                            }}
                         />
                     ) : (
                         <Empty
@@ -678,6 +1330,41 @@ const ChatPage: React.FC = () => {
                     )}
                 </Card>
             </div>
+
+            <Modal
+                title={previewRef?.paper_title || '原始文献片段'}
+                open={previewOpen}
+                onCancel={() => setPreviewOpen(false)}
+                footer={null}
+                width={760}
+            >
+                {previewRef && (
+                    <div className="source-preview-modal">
+                        <div className="source-preview-meta">
+                            <Tag color="blue">引用 #{previewRef.citation_number || '-'}</Tag>
+                            {previewRef.page_number && <Tag>第 {previewRef.page_number} 页</Tag>}
+                            <Tag>相关度 {Math.round((previewRef.display_score || 0) * 100)}%</Tag>
+                            <Tag>原始分 {Number(previewRef.raw_score ?? previewRef.score ?? 0).toFixed(3)}</Tag>
+                        </div>
+
+                        {previewRef.citation_context && (
+                            <div className="source-preview-block">
+                                <Text type="secondary">在回答中的命中位置</Text>
+                                <div className="source-preview-hit">
+                                    {highlightText(previewRef.citation_context, queryKeywords)}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="source-preview-block">
+                            <Text type="secondary">文献原始内容</Text>
+                            <div className="source-preview-origin">
+                                {highlightText(previewRef.text || '', queryKeywords)}
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </Modal>
         </div>
     );
 };
