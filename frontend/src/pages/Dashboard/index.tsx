@@ -8,7 +8,6 @@ import {
     RocketOutlined,
     PlusOutlined,
     GlobalOutlined,
-    UploadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { projectsApi } from '../../services/projects';

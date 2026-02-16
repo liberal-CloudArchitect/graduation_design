@@ -474,19 +474,21 @@ async def agent_stream(
                     )
                     
                     agent_type_used = response.agent_type
-                    full_content = _normalize_agent_markdown(
-                        response.content,
-                        response.references or [],
-                        response.agent_type,
-                    )
-                    references_data = response.references
-                    metadata_extra = response.metadata
-                    
-                    # 发送引用
+                    references_data = response.references or []
                     if references_data:
                         references_data = await _enrich_references_with_titles(
                             db, references_data
                         )
+
+                    full_content = _normalize_agent_markdown(
+                        response.content,
+                        references_data,
+                        response.agent_type,
+                    )
+                    metadata_extra = response.metadata
+                    
+                    # 发送引用
+                    if references_data:
                         yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
                     
                     # 发送生成中状态

@@ -1,8 +1,8 @@
 // 外部文献搜索页面 - 搜索 Semantic Scholar, ArXiv, OpenAlex, CrossRef
 import React, { useState } from 'react';
 import {
-    Card, Input, Button, Table, Tag, Space, Select, Typography,
-    Empty, message, Tooltip, Descriptions, Drawer, InputNumber, Row, Col
+    Card, Input, Button, Table, Tag, Space, Typography,
+    Empty, message, Descriptions, Drawer, InputNumber, Row, Col
 } from 'antd';
 import {
     SearchOutlined, GlobalOutlined, BookOutlined,
@@ -25,7 +25,6 @@ const ExternalSearchPage: React.FC = () => {
     // Detail drawer
     const [detailPaper, setDetailPaper] = useState<ExternalPaper | null>(null);
     const [detailDrawerOpen, setDetailDrawerOpen] = useState(false);
-    const [detailLoading, setDetailLoading] = useState(false);
 
     // Recommendations
     const [recommendations, setRecommendations] = useState<ExternalPaper[]>([]);
@@ -55,14 +54,11 @@ const ExternalSearchPage: React.FC = () => {
         setRecommendations([]);
 
         if (paper.paper_id) {
-            setDetailLoading(true);
             try {
                 const { data } = await externalApi.getPaper(paper.paper_id);
                 setDetailPaper({ ...paper, ...data });
             } catch {
                 // Keep original data
-            } finally {
-                setDetailLoading(false);
             }
 
             // Load recommendations

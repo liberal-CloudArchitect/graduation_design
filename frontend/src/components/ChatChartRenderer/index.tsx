@@ -8,14 +8,13 @@
  * - Base64 图片
  */
 import React, { useMemo } from 'react';
-import { Card, Table, Tag, Empty, Image, Space } from 'antd';
+import { Card, Table, Image, Space } from 'antd';
 import { BarChartOutlined, ShareAltOutlined, TableOutlined, PictureOutlined } from '@ant-design/icons';
 import ReactECharts from 'echarts-for-react';
 import {
     buildWordCloudOption,
     buildBarOption,
     buildTimelineOption,
-    buildPieOption,
 } from '../../utils/chartOptions';
 
 interface Props {

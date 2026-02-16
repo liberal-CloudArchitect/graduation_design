@@ -1,6 +1,6 @@
 // 主布局组件
 import React, { useState } from 'react';
-import { Layout, Menu, Avatar, Dropdown, Typography, Divider } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, Typography } from 'antd';
 import {
     HomeOutlined,
     FolderOutlined,
@@ -9,7 +9,6 @@ import {
     UserOutlined,
     MenuFoldOutlined,
     MenuUnfoldOutlined,
-    SearchOutlined,
     GlobalOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';

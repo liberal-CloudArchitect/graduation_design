@@ -12,7 +12,7 @@ import { writingApi } from '../../../services/writing';
 import ReactMarkdown from 'react-markdown';
 
 const { TextArea } = Input;
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
 
 interface Props {
     projectId: number;

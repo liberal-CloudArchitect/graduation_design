@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Tabs, Card, Button, Upload, Table, Tag, Space, Drawer,
-    Typography, Spin, Empty, Descriptions, message, Popconfirm, Progress
+    Typography, Spin, Empty, Descriptions, message, Popconfirm
 } from 'antd';
 import {
     FileTextOutlined, BarChartOutlined, ShareAltOutlined,

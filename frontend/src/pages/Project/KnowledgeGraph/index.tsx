@@ -383,7 +383,7 @@ const KnowledgeGraph: React.FC<Props> = ({ projectId }) => {
         sprite.backgroundColor = 'rgba(0,0,0,0.45)';
         sprite.padding = [1, 2] as any;
         sprite.borderRadius = 2 as any;
-        sprite.position.y = radius + 4;
+        (sprite as any).position.y = radius + 4;
         group.add(sprite);
 
         return group;

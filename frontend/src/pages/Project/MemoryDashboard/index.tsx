@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import {
     Tabs, Card, Statistic, Row, Col, Table, Tag, Button, Input, Spin,
-    Empty, Progress, Space, Typography, Popconfirm, message, Badge
+    Empty, Progress, Space, Typography, Popconfirm, message
 } from 'antd';
 import {
     DatabaseOutlined, BranchesOutlined, ExperimentOutlined,
@@ -13,7 +13,7 @@ import ReactECharts from 'echarts-for-react';
 import { memoryApi } from '../../../services/memory';
 import type { MemoryItem, MemoryStats, DecayPreviewItem, ReconstructResult } from '../../../services/memory';
 
-const { Text, Paragraph, Title } = Typography;
+const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
 interface Props {
@@ -21,7 +21,7 @@ interface Props {
 }
 
 // ==================== Overview Tab ====================
-const OverviewTab: React.FC<{ projectId: number }> = ({ projectId }) => {
+const OverviewTab: React.FC = () => {
     const [stats, setStats] = useState<MemoryStats | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -487,7 +487,7 @@ const MemoryDashboard: React.FC<Props> = ({ projectId }) => {
         {
             key: 'overview',
             label: <span><DatabaseOutlined /> 概览</span>,
-            children: <OverviewTab projectId={projectId} />,
+            children: <OverviewTab />,
         },
         {
             key: 'list',

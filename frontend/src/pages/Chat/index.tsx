@@ -347,7 +347,10 @@ const computeDisplayReferences = (refs: Reference[], query: string, answer: stri
             if (refTokens.has(t)) overlapCount += 1;
         });
         const overlap = querySet.size ? overlapCount / querySet.size : 0;
-        const citationNo = idx + 1;
+        const candidateCitationNo = Number(ref.citation_number);
+        const citationNo = Number.isFinite(candidateCitationNo) && candidateCitationNo > 0
+            ? candidateCitationNo
+            : idx + 1;
         const citedBoost = citedNumbers.has(citationNo) ? 1 : 0;
 
         const displayScore = Math.max(0, Math.min(1, rawNorm * 0.55 + overlap * 0.3 + citedBoost * 0.15));
@@ -381,7 +384,7 @@ const ChatPage: React.FC = () => {
     const HISTORY_ALL_VALUE = -1;
     const [rawReferences, setRawReferences] = useState<Reference[]>([]);
     const [latestQuery, setLatestQuery] = useState('');
-    const [activeReferenceIndex, setActiveReferenceIndex] = useState<number | null>(null);
+    const [activeCitationNo, setActiveCitationNo] = useState<number | null>(null);
     const [focusedCitationNo, setFocusedCitationNo] = useState<number | null>(null);
     const [expandedReasoning, setExpandedReasoning] = useState<Record<string, boolean>>({});
     const [previewRef, setPreviewRef] = useState<Reference | null>(null);
@@ -456,7 +459,7 @@ const ChatPage: React.FC = () => {
             setActiveConversationId(null);
             setMessages([]);
             setRawReferences([]);
-            setActiveReferenceIndex(null);
+            setActiveCitationNo(null);
             setFocusedCitationNo(null);
         }
     }, [activeConversationId, conversations]);
@@ -500,7 +503,7 @@ const ChatPage: React.FC = () => {
         setMessages(normalizedMessages);
         setRawReferences(refs);
         setLatestQuery(lastUser);
-        setActiveReferenceIndex(null);
+        setActiveCitationNo(null);
         setFocusedCitationNo(null);
         setRoutingAgent(null);
         setRoutingLabel(null);
@@ -515,7 +518,7 @@ const ChatPage: React.FC = () => {
         setMessages([]);
         setRawReferences([]);
         setLatestQuery('');
-        setActiveReferenceIndex(null);
+        setActiveCitationNo(null);
         setFocusedCitationNo(null);
         setRoutingAgent(null);
         setRoutingLabel(null);
@@ -631,7 +634,7 @@ const ChatPage: React.FC = () => {
     };
 
     const handleInlineCitationClick = (citationNo: number) => {
-        setActiveReferenceIndex(citationNo - 1);
+        setActiveCitationNo(citationNo);
         scrollToReferenceCard(citationNo);
     };
 
@@ -700,7 +703,7 @@ const ChatPage: React.FC = () => {
         setInput('');
         setLoading(true);
         setRawReferences([]);
-        setActiveReferenceIndex(null);
+        setActiveCitationNo(null);
         setFocusedCitationNo(null);
         setLatestQuery(parsed.query || input);
         setRoutingAgent(null);
@@ -1092,7 +1095,7 @@ const ChatPage: React.FC = () => {
                                                                         {renderInlineCitationNode(
                                                                             children,
                                                                             `${msgKey}-p`,
-                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            activeCitationNo,
                                                                             focusedCitationNo,
                                                                             handleInlineCitationClick
                                                                         )}
@@ -1103,7 +1106,7 @@ const ChatPage: React.FC = () => {
                                                                         {renderInlineCitationNode(
                                                                             children,
                                                                             `${msgKey}-li`,
-                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            activeCitationNo,
                                                                             focusedCitationNo,
                                                                             handleInlineCitationClick
                                                                         )}
@@ -1114,7 +1117,7 @@ const ChatPage: React.FC = () => {
                                                                         {renderInlineCitationNode(
                                                                             children,
                                                                             `${msgKey}-blockquote`,
-                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            activeCitationNo,
                                                                             focusedCitationNo,
                                                                             handleInlineCitationClick
                                                                         )}
@@ -1125,7 +1128,7 @@ const ChatPage: React.FC = () => {
                                                                         {renderInlineCitationNode(
                                                                             children,
                                                                             `${msgKey}-h1`,
-                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            activeCitationNo,
                                                                             focusedCitationNo,
                                                                             handleInlineCitationClick
                                                                         )}
@@ -1136,7 +1139,7 @@ const ChatPage: React.FC = () => {
                                                                         {renderInlineCitationNode(
                                                                             children,
                                                                             `${msgKey}-h2`,
-                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            activeCitationNo,
                                                                             focusedCitationNo,
                                                                             handleInlineCitationClick
                                                                         )}
@@ -1147,7 +1150,7 @@ const ChatPage: React.FC = () => {
                                                                         {renderInlineCitationNode(
                                                                             children,
                                                                             `${msgKey}-h3`,
-                                                                            activeReferenceIndex != null ? activeReferenceIndex + 1 : null,
+                                                                            activeCitationNo,
                                                                             focusedCitationNo,
                                                                             handleInlineCitationClick
                                                                         )}
@@ -1264,14 +1267,14 @@ const ChatPage: React.FC = () => {
                             rowKey={(ref) => String(ref.citation_number || 0)}
                             renderItem={(ref) => {
                                 const citationNo = ref.citation_number || 1;
-                                const active = activeReferenceIndex === citationNo - 1 || focusedCitationNo === citationNo;
+                                const active = activeCitationNo === citationNo || focusedCitationNo === citationNo;
 
                                 return (
                                     <List.Item
                                         className={`reference-item ${active ? 'active' : ''}`}
                                         id={`ref-card-${citationNo}`}
                                         onClick={() => {
-                                            setActiveReferenceIndex(citationNo - 1);
+                                            setActiveCitationNo(citationNo);
                                             setPreviewRef(ref);
                                             setPreviewOpen(true);
                                         }}
@@ -1285,7 +1288,7 @@ const ChatPage: React.FC = () => {
                                                     icon={<AimOutlined />}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setActiveReferenceIndex(citationNo - 1);
+                                                        setActiveCitationNo(citationNo);
                                                         scrollToCitationMarker(ref);
                                                     }}
                                                 >
