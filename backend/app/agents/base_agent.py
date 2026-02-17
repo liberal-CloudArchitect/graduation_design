@@ -359,19 +359,28 @@ class BaseAgent(ABC):
             except Exception as e:
                 logger.warning(f"Failed to save memory: {e}")
     
-    async def _share_memory(self, content: str, target_agents: List[str] = None):
+    async def _share_memory(
+        self,
+        content: str,
+        target_agents: Optional[List[str]] = None,
+        project_id: Optional[int] = None,
+    ):
         """共享记忆给其他Agent"""
         if self._cross_memory:
             try:
                 from app.rag.memory_engine.base import MemoryNode
-                node = MemoryNode(
+                node = MemoryNode.create(
                     content=content,
-                    metadata={"agent_source": self.agent_type.value}
+                    embedding=[],
+                    memory_type="cross_memory",
+                    agent_source=self.agent_type.value,
+                    project_id=int(project_id or 0),
+                    relations={"shared_by": self.agent_type.value},
                 )
                 await self._cross_memory.share_memory(
                     memory=node,
                     source_agent=self.agent_type.value,
-                    target_agents=target_agents or []
+                    target_agents=target_agents
                 )
             except Exception as e:
                 logger.warning(f"Failed to share memory: {e}")

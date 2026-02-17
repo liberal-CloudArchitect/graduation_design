@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from datetime import datetime
 import os
+import re
 import uuid
 from loguru import logger
 
@@ -56,6 +57,96 @@ class PaperUploadResponse(BaseModel):
 
 
 # ============ Helper Functions ============
+
+REFERENCE_SECTION_PATTERN = re.compile(
+    r"^\s*(references?|参考文献|bibliography)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+REFERENCE_ENTRY_PATTERNS = [
+    re.compile(r"^\s*\[\d{1,3}\]\s+"),
+    re.compile(r"^\s*\d{1,3}\.\s+[A-Z]"),
+    re.compile(r"\bet al\.\b", re.IGNORECASE),
+    re.compile(r"\bdoi:\s*10\.\d{4,9}/", re.IGNORECASE),
+]
+LAYOUT_EXCLUDED_REGION_TYPES = {"reference", "header", "footer"}
+LAYOUT_PRIORITY_REGION_TYPES = {
+    "title", "author", "abstract", "section_header", "paragraph", "list", "caption", "formula"
+}
+
+
+def _is_reference_heavy_text(text: str) -> bool:
+    """判断文本块是否更像参考文献区（用于索引前过滤）"""
+    if not text:
+        return False
+    snippet = text[:400]
+    if REFERENCE_SECTION_PATTERN.search(snippet):
+        return True
+
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return False
+
+    hit = 0
+    for ln in lines:
+        if any(p.search(ln) for p in REFERENCE_ENTRY_PATTERNS):
+            hit += 1
+
+    hit_ratio = hit / max(1, len(lines))
+    return hit >= 3 and hit_ratio >= 0.2
+
+
+def _extract_layout_page_text(page) -> tuple[str, List[str]]:
+    """优先使用布局分析结果重建页面文本，降低页眉/参考文献噪声。"""
+    raw_text = (getattr(page, "text", "") or "").strip()
+    layout = getattr(page, "layout", None)
+    if not layout or not isinstance(layout, dict):
+        return raw_text, []
+
+    regions = layout.get("regions", []) or []
+    if not regions:
+        return raw_text, []
+
+    page_region_types: List[str] = []
+    selected_texts: List[str] = []
+    sorted_regions = sorted(regions, key=lambda r: (r.get("order", 0), r.get("bbox", [0, 0, 0, 0])[1]))
+
+    for region in sorted_regions:
+        rtype = str(region.get("type", "")).strip().lower()
+        rtext = str(region.get("text", "") or "").strip()
+        if not rtext:
+            continue
+        if rtype:
+            page_region_types.append(rtype)
+
+        if rtype in LAYOUT_EXCLUDED_REGION_TYPES:
+            continue
+        # 对“其他”类型更严格，避免噪声灌入
+        if rtype and rtype not in LAYOUT_PRIORITY_REGION_TYPES and len(rtext) < 25:
+            continue
+        selected_texts.append(rtext)
+
+    layout_text = "\n".join(selected_texts).strip()
+    # 过短则回退原始提取文本
+    if len(layout_text) < max(80, len(raw_text) // 5):
+        return raw_text, page_region_types
+    return layout_text, page_region_types
+
+
+def _is_reference_dominant_page(page_region_types: List[str], page_text: str) -> bool:
+    """判断页面是否主要由参考文献构成。"""
+    if not page_text:
+        return False
+    lowered = [str(rt).lower() for rt in page_region_types if rt]
+    if not lowered:
+        return False
+
+    ref_count = sum(1 for rt in lowered if rt == "reference")
+    keep_markers = {"paragraph", "abstract", "section_header", "title"}
+    has_keep_region = any(rt in keep_markers for rt in lowered)
+
+    if ref_count > 0 and _is_reference_heavy_text(page_text) and not has_keep_region:
+        return True
+    return ref_count >= max(2, int(len(lowered) * 0.6)) and not has_keep_region
 
 def _extract_keywords_from_abstract(abstract: str, top_n: int = 10) -> List[str]:
     """从摘要中使用TF-IDF提取关键词（当PDF中未找到显式关键词时的回退方案）"""
@@ -138,6 +229,7 @@ async def process_paper_async(paper_id: int, file_path: str):
     logger.info(f"Processing paper {paper_id}: {file_path}")
     
     async with async_session_maker() as db:
+        paper = None
         try:
             # 获取Paper
             result = await db.execute(
@@ -175,30 +267,88 @@ async def process_paper_async(paper_id: int, file_path: str):
             if pub_date:
                 paper.publication_date = pub_date
             
-            # 分块
-            chunker = SemanticChunker()
-            chunks = chunker.split_text(doc.full_text)
+            # 分块（按页处理，保留页码）
+            chunker = SemanticChunker(
+                chunk_size=settings.CHUNK_SIZE,
+                chunk_overlap=settings.CHUNK_OVERLAP,
+            )
+            chunks = []
+            skipped_reference_chunks = 0
+            skipped_reference_pages = 0
+
+            for page in (doc.pages or []):
+                page_text, page_region_types = _extract_layout_page_text(page)
+                if not page_text.strip():
+                    continue
+
+                if _is_reference_dominant_page(page_region_types, page_text):
+                    skipped_reference_pages += 1
+                    continue
+
+                page_chunks = chunker.split_text(
+                    page_text,
+                    metadata={
+                        "page_number": page.page_number,
+                        "region_types": sorted(set(rt for rt in page_region_types if rt)),
+                    },
+                )
+
+                for c in page_chunks:
+                    if _is_reference_heavy_text(c.text):
+                        skipped_reference_chunks += 1
+                        continue
+                    chunks.append(
+                        {
+                            "text": c.text,
+                            "page_number": page.page_number,
+                            "metadata": c.metadata or {},
+                        }
+                    )
+
+            # 回退：若按页分块为空，使用全文分块
+            if not chunks and doc.full_text:
+                for c in chunker.split_text(doc.full_text):
+                    if _is_reference_heavy_text(c.text):
+                        skipped_reference_chunks += 1
+                        continue
+                    chunks.append(
+                        {
+                            "text": c.text,
+                            "page_number": None,
+                            "metadata": c.metadata or {},
+                        }
+                    )
             
             # 索引到向量库
             if chunks:
-                chunk_texts = [c.text for c in chunks]
-                await rag_engine.index_paper(
+                vector_ids = await rag_engine.index_paper(
                     paper_id=paper_id,
-                    chunks=chunk_texts,
+                    chunks=chunks,
                     project_id=paper.project_id
                 )
+                paper.chunk_count = len(chunks)
+                paper.vector_ids = vector_ids
+                paper.parse_result = {
+                    "chunk_count": len(chunks),
+                    "skipped_reference_chunks": skipped_reference_chunks,
+                    "skipped_reference_pages": skipped_reference_pages,
+                }
             
             # 更新状态为完成
             paper.status = "completed"
             paper.updated_at = datetime.utcnow()
             await db.commit()
             
-            logger.info(f"Paper {paper_id} processed successfully: {len(chunks)} chunks")
+            logger.info(
+                f"Paper {paper_id} processed successfully: {len(chunks)} chunks, "
+                f"skipped_reference_chunks={skipped_reference_chunks}"
+            )
             
         except Exception as e:
             logger.error(f"Failed to process paper {paper_id}: {e}")
-            paper.status = "failed"
-            await db.commit()
+            if paper:
+                paper.status = "failed"
+                await db.commit()
 
 
 # ============ Routes ============
@@ -384,6 +534,63 @@ async def get_paper_status(
     }
 
 
+@router.post("/{paper_id}/reprocess", response_model=PaperUploadResponse)
+async def reprocess_paper(
+    paper_id: int,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """重处理文献并重建索引（用于应用新分块/过滤策略）"""
+    from app.rag import rag_engine
+    from app.services.mongodb_service import mongodb_service
+
+    result = await db.execute(
+        select(Paper).join(Project).where(
+            Paper.id == paper_id,
+            Project.user_id == current_user.id
+        )
+    )
+    paper = result.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="文献不存在"
+        )
+
+    if not paper.file_path or not os.path.exists(paper.file_path):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="文献原始文件不存在，无法重处理"
+        )
+
+    # 清理旧索引和分块，避免重复与脏数据
+    try:
+        await mongodb_service.delete_paper_chunks(paper_id)
+    except Exception as e:
+        logger.warning(f"Reprocess: delete Mongo chunks failed for paper {paper_id}: {e}")
+    try:
+        await rag_engine.delete_paper_index(paper_id)
+    except Exception as e:
+        logger.warning(f"Reprocess: delete retrieval index failed for paper {paper_id}: {e}")
+
+    paper.status = "pending"
+    paper.vector_ids = None
+    paper.chunk_count = None
+    paper.parse_result = {"reprocess_requested_at": datetime.utcnow().isoformat()}
+    paper.updated_at = datetime.utcnow()
+    await db.commit()
+
+    background_tasks.add_task(process_paper_async, paper.id, paper.file_path)
+
+    return PaperUploadResponse(
+        id=paper.id,
+        filename=paper.title or f"paper_{paper.id}.pdf",
+        status="pending",
+        message="文献已进入重处理队列"
+    )
+
+
 @router.delete("/{paper_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_paper(
     paper_id: int,
@@ -391,6 +598,9 @@ async def delete_paper(
     current_user: User = Depends(get_current_user)
 ):
     """删除文献"""
+    from app.rag import rag_engine
+    from app.services.mongodb_service import mongodb_service
+
     result = await db.execute(
         select(Paper).join(Project).where(
             Paper.id == paper_id,
@@ -404,9 +614,19 @@ async def delete_paper(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="文献不存在"
         )
+
+    # 清理文献分块与检索索引，避免删除后仍被召回
+    try:
+        await mongodb_service.delete_paper_chunks(paper_id)
+    except Exception as e:
+        logger.warning(f"Delete Mongo chunks failed for paper {paper_id}: {e}")
+    try:
+        await rag_engine.delete_paper_index(paper_id)
+    except Exception as e:
+        logger.warning(f"Delete vector/bm25 index failed for paper {paper_id}: {e}")
     
     # 删除文件
-    if os.path.exists(paper.file_path):
+    if paper.file_path and os.path.exists(paper.file_path):
         os.remove(paper.file_path)
     
     # 删除记录

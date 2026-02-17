@@ -4,6 +4,8 @@
 将多个外部API的搜索结果聚合、去重、排序。
 """
 import asyncio
+import math
+import re
 from typing import List, Dict, Any, Optional
 from loguru import logger
 
@@ -15,6 +17,26 @@ from app.services.external_apis.crossref import CrossRefClient, crossref
 
 class AcademicSearchAggregator:
     """学术搜索聚合器"""
+    TOKEN_PATTERN = re.compile(r"[a-z0-9]{2,}|[\u4e00-\u9fff]{2,}", re.IGNORECASE)
+    EN_STOPWORDS = {
+        "the", "and", "for", "with", "from", "into", "that", "this", "those",
+        "these", "what", "which", "when", "where", "how", "why", "about",
+        "over", "under", "between", "using", "based", "than", "into", "their",
+        "your", "our", "are", "is", "was", "were", "been", "being",
+    }
+    CN_STOPWORDS = {
+        "什么", "哪些", "如何", "以及", "关于", "相关", "研究", "方法",
+        "进行", "一个", "可以", "主要", "论文", "文献", "分析", "对比",
+        "比较", "综合", "总结", "归纳", "给出", "请问", "方面",
+    }
+    AI_CONTEXT_TERMS = {
+        "rag", "llm", "agentic", "retrieval", "generation", "prompt",
+        "大模型", "检索增强", "生成式", "智能体", "学术", "文献",
+    }
+    BIOMED_RAG_NOISE_TERMS = {
+        "rag-1", "rag-2", "vdj", "v(d)j", "lymphocyte", "immunoglobulin",
+        "mtorc1", "t cell", "b cell", "recombination", "gene", "mice",
+    }
     
     def __init__(
         self,
@@ -47,20 +69,21 @@ class AcademicSearchAggregator:
         Returns:
             聚合后的论文列表
         """
+        normalized_query = self._rewrite_query(query)
         if sources is None:
             sources = ["semantic_scholar", "openalex", "arxiv"]
-        
+
         # 并行搜索
         tasks = []
-        
+
         if "semantic_scholar" in sources:
-            tasks.append(self._search_s2(query, limit, year))
+            tasks.append(self._search_s2(normalized_query, limit, year))
         if "openalex" in sources:
-            tasks.append(self._search_oa(query, limit, year))
+            tasks.append(self._search_oa(normalized_query, limit, year))
         if "arxiv" in sources:
-            tasks.append(self._search_arxiv(query, limit))
+            tasks.append(self._search_arxiv(normalized_query, limit))
         if "crossref" in sources:
-            tasks.append(self._search_cr(query, limit))
+            tasks.append(self._search_cr(normalized_query, limit))
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
@@ -74,14 +97,17 @@ class AcademicSearchAggregator:
         
         # 去重 (基于DOI或标题)
         deduplicated = self._deduplicate(all_papers)
-        
-        # 排序 (引用数 > 年份)
+
+        ranked = self._rank_and_filter(query, deduplicated)
+        if ranked:
+            return ranked[:limit * 2]  # 返回合理数量
+
+        # 回退：保留原有排序策略，避免全过滤导致无结果
         deduplicated.sort(
             key=lambda p: (p.get("citation_count", 0), p.get("year", 0)),
-            reverse=True
+            reverse=True,
         )
-        
-        return deduplicated[:limit * 2]  # 返回合理数量
+        return deduplicated[:limit * 2]
     
     async def _search_s2(self, query: str, limit: int, year: Optional[str]) -> List[Dict]:
         """Semantic Scholar 搜索"""
@@ -140,8 +166,126 @@ class AcademicSearchAggregator:
                 seen_titles.add(title)
             
             unique.append(paper)
-        
+
         return unique
+
+    def _rewrite_query(self, query: str) -> str:
+        """对学术搜索查询做轻量改写，提升召回与语义聚焦。"""
+        q = (query or "").strip()
+        if not q:
+            return q
+        lower = q.lower()
+
+        expansions: List[str] = []
+        if re.search(r"\brag\b", lower):
+            expansions.append("retrieval augmented generation")
+            expansions.append("large language model")
+        if "agentic" in lower and "rag" in lower:
+            expansions.append("autonomous agents planning tool use")
+        if "综述" in q or "survey" in lower:
+            expansions.append("survey review")
+
+        if expansions:
+            q = f"{q} {' '.join(expansions)}"
+        return q
+
+    def _tokenize(self, text: str) -> set:
+        if not text:
+            return set()
+        tokens = set()
+        for raw in self.TOKEN_PATTERN.findall(text.lower()):
+            tok = raw.strip()
+            if len(tok) <= 1:
+                continue
+            if tok in self.EN_STOPWORDS or tok in self.CN_STOPWORDS:
+                continue
+            tokens.add(tok)
+        return tokens
+
+    def _is_ai_query_context(self, query: str, query_tokens: set) -> bool:
+        lower = (query or "").lower()
+        return any(term in lower for term in self.AI_CONTEXT_TERMS) or bool(
+            query_tokens & self.AI_CONTEXT_TERMS
+        )
+
+    def _is_biomed_rag_noise(self, paper: Dict[str, Any], ai_context: bool) -> bool:
+        if not ai_context:
+            return False
+        title = str(paper.get("title", "") or "").lower()
+        abstract = str(
+            paper.get("abstract", "") or paper.get("summary", "") or paper.get("tldr", "") or ""
+        ).lower()
+        combined = f"{title} {abstract}"
+        noise_hits = sum(1 for term in self.BIOMED_RAG_NOISE_TERMS if term in combined)
+        return noise_hits >= 2
+
+    def _paper_relevance_score(self, query_tokens: set, paper: Dict[str, Any]) -> float:
+        title = str(paper.get("title", "") or "")
+        abstract = str(
+            paper.get("abstract", "") or paper.get("summary", "") or paper.get("tldr", "") or ""
+        )
+        title_tokens = self._tokenize(title)
+        abs_tokens = self._tokenize(abstract)
+
+        if query_tokens:
+            title_overlap = len(query_tokens & title_tokens) / len(query_tokens)
+            abs_overlap = len(query_tokens & abs_tokens) / len(query_tokens)
+        else:
+            title_overlap = 0.0
+            abs_overlap = 0.0
+
+        combined_text = f"{title} {abstract}".lower()
+        phrase_boost = 0.0
+        if "retrieval augmented generation" in combined_text:
+            phrase_boost += 0.08
+        if "agentic rag" in combined_text or "agentic retrieval augmented generation" in combined_text:
+            phrase_boost += 0.08
+
+        citations = max(0, int(paper.get("citation_count", 0) or 0))
+        citation_boost = min(math.log1p(citations) / 20.0, 0.15)
+        year = int(paper.get("year", 0) or 0)
+        recency_boost = 0.05 if year >= 2021 else 0.0
+        abstract_boost = 0.03 if abstract else 0.0
+
+        score = (
+            title_overlap * 0.55
+            + abs_overlap * 0.28
+            + phrase_boost
+            + citation_boost
+            + recency_boost
+            + abstract_boost
+        )
+        return max(0.0, min(1.0, score))
+
+    def _rank_and_filter(self, query: str, papers: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        query_tokens = self._tokenize(query)
+        ai_context = self._is_ai_query_context(query, query_tokens)
+        scored: List[Dict[str, Any]] = []
+
+        for p in papers:
+            if not isinstance(p, dict):
+                continue
+            if self._is_biomed_rag_noise(p, ai_context):
+                continue
+
+            rel = self._paper_relevance_score(query_tokens, p)
+            min_relevance = 0.06 if query_tokens else 0.0
+            if rel < min_relevance:
+                continue
+
+            enriched = dict(p)
+            enriched["external_relevance_score"] = round(rel, 6)
+            scored.append(enriched)
+
+        scored.sort(
+            key=lambda p: (
+                float(p.get("external_relevance_score", 0.0)),
+                int(p.get("citation_count", 0) or 0),
+                int(p.get("year", 0) or 0),
+            ),
+            reverse=True,
+        )
+        return scored
     
     async def get_citation_network(
         self,

@@ -106,6 +106,39 @@ async def _enrich_references_with_titles(
     return enriched
 
 
+async def _validate_requested_paper_ids(
+    db: AsyncSession,
+    user_id: int,
+    paper_ids: Optional[List[int]],
+    project_id: Optional[int] = None,
+) -> Optional[List[int]]:
+    """校验 paper_ids 是否都属于当前用户（且可选属于指定项目）"""
+    if not paper_ids:
+        return None
+
+    unique_ids = list(dict.fromkeys(int(pid) for pid in paper_ids if pid))
+    if not unique_ids:
+        return None
+
+    query = (
+        select(Paper.id)
+        .join(Project, Paper.project_id == Project.id)
+        .where(Paper.id.in_(unique_ids), Project.user_id == user_id)
+    )
+    if project_id is not None:
+        query = query.where(Paper.project_id == project_id)
+
+    result = await db.execute(query)
+    accessible_ids = {int(row[0]) for row in result.all()}
+
+    if len(accessible_ids) != len(unique_ids):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="包含无权限访问的文献ID"
+        )
+    return unique_ids
+
+
 # ============ Routes ============
 
 @router.post("/ask", response_model=AnswerResponse)
@@ -136,13 +169,20 @@ async def ask_question(
                 detail="项目不存在"
             )
     
+    validated_paper_ids = await _validate_requested_paper_ids(
+        db=db,
+        user_id=current_user.id,
+        paper_ids=request.paper_ids,
+        project_id=request.project_id,
+    )
+
     # 调用RAG引擎
     try:
         result = await rag_engine.answer(
             question=request.question,
             project_id=request.project_id,
             top_k=request.top_k,
-            paper_ids=request.paper_ids,
+            paper_ids=validated_paper_ids,
         )
     except Exception as e:
         logger.error(f"RAG error: {e}")
@@ -229,6 +269,13 @@ async def stream_answer(
                 detail="项目不存在"
             )
     
+    validated_paper_ids = await _validate_requested_paper_ids(
+        db=db,
+        user_id=current_user.id,
+        paper_ids=request.paper_ids,
+        project_id=request.project_id,
+    )
+
     async def generate():
         """使用统一的 answer_stream() 生成流式响应"""
         try:
@@ -237,7 +284,7 @@ async def stream_answer(
                 project_id=request.project_id,
                 top_k=request.top_k,
                 use_memory=True,
-                paper_ids=request.paper_ids,
+                paper_ids=validated_paper_ids,
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
                 

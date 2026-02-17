@@ -4,9 +4,10 @@ RAG Engine - Core Implementation
 统一的 RAG 引擎，负责文档向量化、混合检索、重排序和生成流程。
 支持记忆增强、流式输出、对话历史、extra_context 注入和 paper_ids 筛选。
 """
-from typing import List, Optional, Dict, Any, AsyncGenerator
+from typing import List, Optional, Dict, Any, AsyncGenerator, Tuple
 from loguru import logger
 import json
+import re
 
 from app.core.config import settings
 from app.rag.memory_engine import DynamicMemoryEngine
@@ -45,6 +46,27 @@ class RAGEngine:
         self.hybrid_retriever = None  # 混合检索器
         self._initialized = False
         self._chunk_cache: Dict[str, str] = {}  # 内存缓存
+
+    _REFERENCE_SECTION_PATTERN = re.compile(
+        r"^\s*(references?|参考文献|bibliography)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    _REFERENCE_ENTRY_PATTERNS = [
+        re.compile(r"^\s*\[\d{1,3}\]\s+"),
+        re.compile(r"^\s*\d{1,3}\.\s+[A-Z]"),
+        re.compile(r"\bet al\.\b", re.IGNORECASE),
+        re.compile(r"\bdoi:\s*10\.\d{4,9}/", re.IGNORECASE),
+    ]
+    _ADMIN_NOISE_PATTERNS = [
+        re.compile(r"课程负责人签字"),
+        re.compile(r"研究生教育主管部门公章"),
+        re.compile(r"同意该课程资源按要求接入"),
+        re.compile(r"无违法违纪行为"),
+        re.compile(r"不存在师德师风问题"),
+        re.compile(r"学术不端"),
+        re.compile(r"思想导向正确"),
+        re.compile(r"联系方式[:：]\s*\d{7,}"),
+    ]
 
     
     async def initialize(self):
@@ -228,7 +250,7 @@ class RAGEngine:
     async def index_paper(
         self, 
         paper_id: int, 
-        chunks: List[str],
+        chunks: List[Any],
         project_id: Optional[int] = None
     ) -> List[str]:
         """
@@ -236,7 +258,7 @@ class RAGEngine:
         
         Args:
             paper_id: 文献ID
-            chunks: 文本分块列表
+            chunks: 文本分块列表（支持 str 或 {"text", "page_number", "metadata"}）
             project_id: 项目ID
             
         Returns:
@@ -247,15 +269,41 @@ class RAGEngine:
         
         from app.services.mongodb_service import mongodb_service
         
+        # 统一为结构化分块
+        normalized_chunks = []
+        for item in chunks:
+            if isinstance(item, dict):
+                text = str(item.get("text", "") or "")
+                page_number = item.get("page_number")
+                metadata = item.get("metadata", {}) or {}
+            else:
+                text = str(item or "")
+                page_number = None
+                metadata = {}
+
+            if not text.strip():
+                continue
+
+            normalized_chunks.append(
+                {
+                    "text": text,
+                    "page_number": page_number,
+                    "metadata": metadata,
+                }
+            )
+
+        if not normalized_chunks:
+            return []
+
         # 向量化
-        embeddings = self.embed(chunks)
+        embeddings = self.embed([c["text"] for c in normalized_chunks])
         
         # 构建实体
         entities = []
         vector_ids = []
         chunk_docs = []
         
-        for i, (emb, chunk) in enumerate(zip(embeddings, chunks)):
+        for i, (emb, chunk) in enumerate(zip(embeddings, normalized_chunks)):
             vector_id = f"{paper_id}_{i}"
             vector_ids.append(vector_id)
             entities.append({
@@ -267,11 +315,12 @@ class RAGEngine:
             })
             chunk_docs.append({
                 "index": i,
-                "text": chunk,
-                "page_number": None
+                "text": chunk.get("text", ""),
+                "page_number": chunk.get("page_number"),
+                "metadata": chunk.get("metadata", {}),
             })
             # 内存缓存
-            self._chunk_cache[f"{paper_id}_{i}"] = chunk
+            self._chunk_cache[f"{paper_id}_{i}"] = chunk.get("text", "")
         
         # 存储到MongoDB
         await mongodb_service.insert_chunks(paper_id, chunk_docs)
@@ -289,13 +338,36 @@ class RAGEngine:
         # 同步索引到 Elasticsearch（如果混合检索器可用）
         if self.hybrid_retriever and self.hybrid_retriever.bm25_retriever.client:
             try:
-                await self.hybrid_retriever.bm25_retriever.index(paper_id, chunk_docs)
+                await self.hybrid_retriever.bm25_retriever.index(
+                    paper_id, project_id, chunk_docs
+                )
                 logger.info(f"BM25 index updated for paper {paper_id}")
             except Exception as e:
                 logger.warning(f"BM25 indexing failed: {e}")
         
         logger.info(f"Indexed {len(chunks)} chunks for paper {paper_id}")
         return vector_ids
+
+    async def delete_paper_index(self, paper_id: int):
+        """删除文献在检索系统中的索引数据"""
+        if self.milvus:
+            try:
+                self.milvus.delete(
+                    collection_name="paper_vectors",
+                    filter=f"paper_id == {paper_id}",
+                )
+            except Exception as e:
+                logger.warning(f"Milvus delete failed for paper {paper_id}: {e}")
+
+        if self.hybrid_retriever:
+            try:
+                await self.hybrid_retriever.delete_paper(paper_id)
+            except Exception as e:
+                logger.warning(f"BM25 delete failed for paper {paper_id}: {e}")
+
+        stale_keys = [k for k in self._chunk_cache.keys() if k.startswith(f"{paper_id}_")]
+        for key in stale_keys:
+            self._chunk_cache.pop(key, None)
     
     async def search(
         self,
@@ -321,11 +393,21 @@ class RAGEngine:
         
         # 优先使用混合检索器 (BM25 + Vector + RRF)
         if self.hybrid_retriever and self.hybrid_retriever._initialized:
+            # 旧索引可能缺少 project_id 字段，无法在 BM25 侧做项目隔离。
+            # 这种情况下回退到纯向量检索，避免跨项目串检。
+            if (
+                project_id is not None
+                and not paper_ids
+                and hasattr(self.hybrid_retriever.bm25_retriever, "_supports_project_filter")
+                and not self.hybrid_retriever.bm25_retriever._supports_project_filter
+            ):
+                return await self._vector_search(query_embedding, project_id, top_k, paper_ids)
             try:
                 hybrid_results = await self.hybrid_retriever.search(
                     query=query,
                     query_vector=query_embedding,
                     top_k=top_k,
+                    project_id=project_id,
                     paper_ids=paper_ids
                 )
                 if hybrid_results:
@@ -358,7 +440,7 @@ class RAGEngine:
         """纯向量检索（Milvus）"""
         # 构建过滤条件
         filter_parts = []
-        if project_id:
+        if project_id is not None:
             filter_parts.append(f"project_id == {project_id}")
         if paper_ids:
             filter_parts.append(f"paper_id in {paper_ids}")
@@ -404,31 +486,19 @@ class RAGEngine:
         Returns:
             包含答案和引用的字典
         """
-        memory_results = []
-        
-        # 1. 检索历史记忆
-        if use_memory and self.memory_engine:
-            try:
-                memory_results = await self.memory_engine.retrieve(
-                    question, project_id, top_k=3
-                )
-                logger.debug(f"Retrieved {len(memory_results)} memories")
-            except Exception as e:
-                logger.warning(f"Memory retrieval failed: {e}")
-        
-        # 2. 混合检索相关文档（使用原始 question，不含 extra_context）
-        search_results = await self.search(question, project_id, top_k * 2, paper_ids)
-        
-        # 3. 获取文档内容
-        docs = await self._fetch_documents(search_results)
-        
-        # 4. 重排序：从 top_k*2 中选出最相关的 top_k
-        docs = await self._rerank(question, docs, top_k)
-        
-        # 5. 构建上下文 (融合记忆与文献)
+        # 1. 准备证据（记忆 + 检索 + 去噪 + 覆盖增强）
+        memory_results, docs, retrieval_meta = await self._prepare_evidence(
+            question=question,
+            project_id=project_id,
+            top_k=top_k,
+            use_memory=use_memory,
+            paper_ids=paper_ids,
+        )
+
+        # 2. 构建上下文 (融合记忆与文献)
         context = self._build_context_with_memory(docs, memory_results)
-        
-        # 6. 构建 Prompt（使用统一模板，extra_context 独立注入）
+
+        # 3. 构建 Prompt（使用统一模板，extra_context 独立注入）
         history_text = build_conversation_history_text(conversation_history or [])
         prompt = build_rag_prompt(
             question=question,
@@ -436,15 +506,15 @@ class RAGEngine:
             extra_context=extra_context,
             conversation_history=history_text,
         )
-        
-        # 7. 生成答案
+
+        # 4. 生成答案
         if self.llm:
             response = await self.llm.ainvoke(prompt)
             answer = response.content
         else:
             answer = "LLM未初始化，无法生成答案"
-        
-        # 8. 保存本次交互为新记忆
+
+        # 5. 保存本次交互为新记忆
         if use_memory and self.memory_engine:
             try:
                 await self.memory_engine.add_memory(
@@ -459,6 +529,7 @@ class RAGEngine:
             "references": docs,
             "memory_used": len(memory_results) > 0,
             "memory_count": len(memory_results),
+            "retrieval_meta": retrieval_meta,
             "method": "rag_memory_enhanced"
         }
     
@@ -484,35 +555,23 @@ class RAGEngine:
             {"type": "done", "data": {"answer": "...", "memory_used": bool, ...}}
         """
         import asyncio
-        
-        memory_results = []
-        
-        # 1. 检索历史记忆
-        if use_memory and self.memory_engine:
-            try:
-                memory_results = await self.memory_engine.retrieve(
-                    question, project_id, top_k=3
-                )
-                logger.debug(f"[stream] Retrieved {len(memory_results)} memories")
-            except Exception as e:
-                logger.warning(f"[stream] Memory retrieval failed: {e}")
-        
-        # 2. 混合检索相关文档
-        search_results = await self.search(question, project_id, top_k * 2, paper_ids)
-        
-        # 3. 获取文档内容
-        docs = await self._fetch_documents(search_results)
-        
-        # 4. 重排序
-        docs = await self._rerank(question, docs, top_k)
-        
-        # 5. 发送引用（检索结果）
+
+        # 1. 准备证据（记忆 + 检索 + 去噪 + 覆盖增强）
+        memory_results, docs, retrieval_meta = await self._prepare_evidence(
+            question=question,
+            project_id=project_id,
+            top_k=top_k,
+            use_memory=use_memory,
+            paper_ids=paper_ids,
+        )
+
+        # 2. 发送引用（检索结果）
         yield {"type": "references", "data": docs}
-        
-        # 6. 构建上下文
+
+        # 3. 构建上下文
         context = self._build_context_with_memory(docs, memory_results)
-        
-        # 7. 构建 Prompt
+
+        # 4. 构建 Prompt
         history_text = build_conversation_history_text(conversation_history or [])
         prompt = build_rag_prompt(
             question=question,
@@ -520,8 +579,8 @@ class RAGEngine:
             extra_context=extra_context,
             conversation_history=history_text,
         )
-        
-        # 8. 流式生成答案
+
+        # 5. 流式生成答案
         full_answer = ""
         if self.llm:
             async for chunk in self.llm.astream(prompt):
@@ -532,8 +591,8 @@ class RAGEngine:
         else:
             full_answer = "LLM未初始化，无法生成答案"
             yield {"type": "chunk", "data": full_answer}
-        
-        # 9. 保存本次交互为新记忆
+
+        # 6. 保存本次交互为新记忆
         if use_memory and self.memory_engine:
             try:
                 await self.memory_engine.add_memory(
@@ -542,17 +601,216 @@ class RAGEngine:
                 )
             except Exception as e:
                 logger.warning(f"[stream] Failed to save memory: {e}")
-        
-        # 10. 发送完成信号
+
+        # 7. 发送完成信号
         yield {
             "type": "done",
             "data": {
                 "answer": full_answer,
                 "memory_used": len(memory_results) > 0,
                 "memory_count": len(memory_results),
+                "retrieval_meta": retrieval_meta,
                 "method": "rag_memory_enhanced",
             }
         }
+
+    async def _prepare_evidence(
+        self,
+        question: str,
+        project_id: Optional[int],
+        top_k: int,
+        use_memory: bool,
+        paper_ids: Optional[List[int]],
+    ) -> Tuple[List[Any], List[Dict[str, Any]], Dict[str, Any]]:
+        """统一准备可用于回答的证据：记忆 + 检索 + 去噪 + 覆盖增强。"""
+        memory_results = []
+        if use_memory and self.memory_engine:
+            try:
+                memory_results = await self.memory_engine.retrieve(
+                    question, project_id, top_k=3
+                )
+            except Exception as e:
+                logger.warning(f"Memory retrieval failed: {e}")
+
+        search_results = await self.search(question, project_id, top_k * 3, paper_ids)
+        raw_docs = await self._fetch_documents(search_results)
+        filtered_docs, filtered_count = self._filter_reference_like_docs(raw_docs)
+        candidate_docs = filtered_docs if filtered_docs else raw_docs
+        candidate_docs, filtered_admin_count, filtered_low_score_count = self._filter_low_signal_docs(
+            candidate_docs,
+            target_k=max(top_k * 2, top_k),
+        )
+        if not candidate_docs:
+            candidate_docs = filtered_docs if filtered_docs else raw_docs
+
+        reranked_docs = await self._rerank(question, candidate_docs, max(top_k * 2, top_k))
+        final_docs = self._diversify_docs_by_paper(reranked_docs, top_k)
+
+        paper_ids_in_docs = sorted(
+            {
+                int(d.get("paper_id"))
+                for d in final_docs
+                if isinstance(d, dict) and d.get("paper_id") is not None
+            }
+        )
+        retrieval_meta = {
+            "search_hit_count": len(search_results),
+            "raw_doc_count": len(raw_docs),
+            "filtered_reference_docs": filtered_count,
+            "filtered_admin_docs": filtered_admin_count,
+            "filtered_low_score_docs": filtered_low_score_count,
+            "candidate_doc_count": len(candidate_docs),
+            "final_doc_count": len(final_docs),
+            "covered_paper_ids": paper_ids_in_docs,
+            "covered_paper_count": len(paper_ids_in_docs),
+        }
+
+        return memory_results, final_docs, retrieval_meta
+
+    def _is_reference_like_text(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """判断片段是否更像参考文献内容，避免进入最终推理上下文。"""
+        if not text:
+            return False
+
+        if metadata and isinstance(metadata, dict):
+            region_types = metadata.get("region_types") or []
+            region_types = [str(rt).lower() for rt in region_types if rt]
+            if "reference" in region_types:
+                return True
+
+        snippet = text[:500]
+        if self._REFERENCE_SECTION_PATTERN.search(snippet):
+            return True
+
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            return False
+
+        hit = 0
+        for ln in lines:
+            if any(p.search(ln) for p in self._REFERENCE_ENTRY_PATTERNS):
+                hit += 1
+
+        ratio = hit / max(1, len(lines))
+        return hit >= 3 and ratio >= 0.2
+
+    def _filter_reference_like_docs(
+        self,
+        docs: List[Dict[str, Any]],
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """过滤参考文献噪声文档，若过滤后为空则由上层回退使用原始结果。"""
+        filtered: List[Dict[str, Any]] = []
+        filtered_count = 0
+
+        for d in docs:
+            text = str((d or {}).get("text", "") or "")
+            metadata = (d or {}).get("metadata") or {}
+            if self._is_reference_like_text(text, metadata):
+                filtered_count += 1
+                continue
+            filtered.append(d)
+
+        return filtered, filtered_count
+
+    def _is_administrative_noise(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """判断片段是否属于签字/声明/联系方式等行政噪声。"""
+        if not text:
+            return False
+
+        snippet = str(text)[:1200]
+        hits = sum(1 for p in self._ADMIN_NOISE_PATTERNS if p.search(snippet))
+        if hits >= 2:
+            return True
+
+        # 兜底：出现多个高风险关键词时判定为低价值行政文本
+        lower = snippet.lower()
+        weak_hits = 0
+        for hint in ("签字", "公章", "真实性", "遵纪守法", "知识产权", "国家安全", "联系方式"):
+            if hint in lower:
+                weak_hits += 1
+        if weak_hits >= 3:
+            return True
+
+        return False
+
+    def _filter_low_signal_docs(
+        self,
+        docs: List[Dict[str, Any]],
+        target_k: int,
+    ) -> Tuple[List[Dict[str, Any]], int, int]:
+        """
+        过滤低信号证据：
+        1) 行政噪声文本
+        2) 明显低于主簇的低分尾部文档（保留数量安全阈值）
+        """
+        if not docs:
+            return [], 0, 0
+
+        non_admin_docs: List[Dict[str, Any]] = []
+        admin_filtered = 0
+        for d in docs:
+            text = str((d or {}).get("text", "") or "")
+            metadata = (d or {}).get("metadata") or {}
+            if self._is_administrative_noise(text, metadata):
+                admin_filtered += 1
+                continue
+            non_admin_docs.append(d)
+
+        if len(non_admin_docs) <= max(target_k, 1):
+            return non_admin_docs, admin_filtered, 0
+
+        scored_docs = [
+            (idx, float((d or {}).get("score", 0) or 0.0))
+            for idx, d in enumerate(non_admin_docs)
+        ]
+        max_score = max((s for _, s in scored_docs), default=0.0)
+        if max_score <= 0:
+            return non_admin_docs, admin_filtered, 0
+
+        # 动态阈值：保留主簇，剪掉明显尾部噪声
+        score_threshold = max_score * 0.65
+        kept = [d for d in non_admin_docs if float((d or {}).get("score", 0) or 0.0) >= score_threshold]
+        if len(kept) < max(target_k, 1):
+            return non_admin_docs, admin_filtered, 0
+
+        low_score_filtered = len(non_admin_docs) - len(kept)
+        return kept, admin_filtered, low_score_filtered
+
+    def _diversify_docs_by_paper(
+        self,
+        docs: List[Dict[str, Any]],
+        top_k: int,
+    ) -> List[Dict[str, Any]]:
+        """保证最终证据尽量覆盖多篇文献，避免被单篇文献垄断。"""
+        if top_k <= 0 or not docs:
+            return []
+        if len(docs) <= top_k:
+            return docs
+
+        selected: List[Dict[str, Any]] = []
+        used_indices = set()
+        seen_papers = set()
+
+        # 第一轮：每篇文献优先选1条
+        for idx, d in enumerate(docs):
+            pid = d.get("paper_id")
+            if pid in seen_papers:
+                continue
+            selected.append(d)
+            used_indices.add(idx)
+            seen_papers.add(pid)
+            if len(selected) >= top_k:
+                return selected
+
+        # 第二轮：按原排序补齐剩余名额
+        for idx, d in enumerate(docs):
+            if idx in used_indices:
+                continue
+            selected.append(d)
+            if len(selected) >= top_k:
+                break
+
+        return selected[:top_k]
     
     async def _rerank(
         self,
@@ -656,6 +914,7 @@ class RAGEngine:
                     "chunk_index": chunk_index,
                     "text": chunk.get("text", ""),
                     "page_number": chunk.get("page_number"),
+                    "metadata": chunk.get("metadata", {}),
                     "score": result.get("distance", 0)
                 })
             else:
@@ -666,6 +925,7 @@ class RAGEngine:
                         "paper_id": paper_id,
                         "chunk_index": chunk_index,
                         "text": inline_text,
+                        "metadata": {},
                         "score": result.get("distance", 0)
                     })
                     continue
@@ -678,6 +938,7 @@ class RAGEngine:
                         "paper_id": paper_id,
                         "chunk_index": chunk_index,
                         "text": cached_text,
+                        "metadata": {},
                         "score": result.get("distance", 0)
                     })
                 else:
@@ -689,7 +950,14 @@ class RAGEngine:
         """构建Prompt上下文"""
         context_parts = []
         for i, doc in enumerate(docs, 1):
-            context_parts.append(f"[{i}] {doc.get('text', '')}")
+            paper_id = doc.get("paper_id")
+            page_number = doc.get("page_number")
+            source_hint = (
+                f"(paper:{paper_id}, page:{page_number})"
+                if page_number
+                else f"(paper:{paper_id})"
+            )
+            context_parts.append(f"[{i}] {source_hint} {doc.get('text', '')}")
         return "\n\n".join(context_parts)
     
     def _build_context_with_memory(
@@ -721,7 +989,14 @@ class RAGEngine:
         if docs:
             context_parts.append("【文献参考】")
             for i, doc in enumerate(docs, 1):
-                context_parts.append(f"[{i}] {doc.get('text', '')}")
+                paper_id = doc.get("paper_id")
+                page_number = doc.get("page_number")
+                source_hint = (
+                    f"(paper:{paper_id}, page:{page_number})"
+                    if page_number
+                    else f"(paper:{paper_id})"
+                )
+                context_parts.append(f"[{i}] {source_hint} {doc.get('text', '')}")
         
         return "\n\n".join(context_parts)
 

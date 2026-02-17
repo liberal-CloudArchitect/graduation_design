@@ -29,6 +29,17 @@ THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
 TOKEN_PATTERN = re.compile(r"[a-z0-9]{3,}|[\u4e00-\u9fff]{2,}", re.IGNORECASE)
 CITATION_PATTERN = re.compile(r"\[(\d{1,3})\]")
+EXTERNAL_AUGMENT_HINTS = (
+    "最新", "最近", "前沿", "sota", "state-of-the-art", "recent", "latest"
+)
+COLLABORATIVE_HINTS = (
+    "综述", "归纳", "总结", "比较", "对比", "方法有哪些",
+    "主要研究方法", "发展脉络", "异同", "优缺点", "综合分析"
+)
+EXTERNAL_BIOMED_NOISE_TERMS = (
+    "rag-1", "rag-2", "vdj", "v(d)j", "lymphocyte", "immunoglobulin",
+    "mtorc1", "t cell", "b cell", "recombination", "gene", "mice"
+)
 
 
 class ThinkTagStreamParser:
@@ -177,6 +188,42 @@ def _split_reasoning_content(content: str) -> Tuple[str, str]:
     return f"{answer}{tail_answer}", f"{reasoning}{tail_reasoning}".strip()
 
 
+def _should_use_external_search(query: str, params: Dict[str, Any]) -> bool:
+    """判断是否启用外部文献补充检索"""
+    flag = params.get("use_external_search")
+    if isinstance(flag, bool):
+        return flag
+    q = (query or "").lower()
+    return any(hint in q for hint in EXTERNAL_AUGMENT_HINTS)
+
+
+def _should_enable_collaborative(query: str, params: Dict[str, Any]) -> bool:
+    """判断是否启用多Agent协作模式。"""
+    for key in ("collaborative", "use_multi_agent"):
+        flag = params.get(key)
+        if isinstance(flag, bool):
+            return flag
+    q = (query or "").lower()
+    return any(hint in q for hint in COLLABORATIVE_HINTS)
+
+
+def _is_ai_query(query: str) -> bool:
+    q = (query or "").lower()
+    hints = ("rag", "llm", "agentic", "retrieval", "generation", "大模型", "检索增强", "智能体")
+    return any(h in q for h in hints)
+
+
+def _is_external_noise_for_query(query: str, paper: Dict[str, Any]) -> bool:
+    """过滤明显与 AI-RAG 语境不符的外部文献（如生物学 RAG 基因论文）。"""
+    if not _is_ai_query(query):
+        return False
+    title = str(paper.get("title", "") or "").lower()
+    abstract = str(paper.get("abstract", "") or paper.get("summary", "") or paper.get("tldr", "") or "").lower()
+    combined = f"{title} {abstract}"
+    hits = sum(1 for term in EXTERNAL_BIOMED_NOISE_TERMS if term in combined)
+    return hits >= 2
+
+
 async def _enrich_references_with_titles(
     db: AsyncSession,
     references: List[dict]
@@ -209,6 +256,39 @@ async def _enrich_references_with_titles(
             ref = {**ref, "title": title, "paper_title": title}
         enriched.append(ref)
     return enriched
+
+
+async def _validate_requested_paper_ids(
+    db: AsyncSession,
+    user_id: int,
+    paper_ids: Optional[List[int]],
+    project_id: Optional[int] = None,
+) -> Optional[List[int]]:
+    """校验 paper_ids 是否都属于当前用户（且可选属于指定项目）"""
+    if not paper_ids:
+        return None
+
+    unique_ids = list(dict.fromkeys(int(pid) for pid in paper_ids if pid))
+    if not unique_ids:
+        return None
+
+    query = (
+        select(Paper.id)
+        .join(Project, Paper.project_id == Project.id)
+        .where(Paper.id.in_(unique_ids), Project.user_id == user_id)
+    )
+    if project_id is not None:
+        query = query.where(Paper.project_id == project_id)
+
+    result = await db.execute(query)
+    accessible_ids = {int(row[0]) for row in result.all()}
+
+    if len(accessible_ids) != len(unique_ids):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="包含无权限访问的文献ID"
+        )
+    return unique_ids
 
 
 def _normalize_agent_markdown(
@@ -285,6 +365,7 @@ class SkillExecuteRequest(BaseModel):
 @router.post("/ask")
 async def agent_ask(
     request: AgentRequest,
+    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """
@@ -296,13 +377,24 @@ async def agent_ask(
     # 确保协调器已初始化
     if not agent_coordinator._initialized:
         await agent_coordinator.initialize(rag_engine)
+
+    # 校验传入的 paper_ids，防止越权检索
+    req_params = dict(request.params or {})
+    validated_paper_ids = await _validate_requested_paper_ids(
+        db=db,
+        user_id=current_user.id,
+        paper_ids=req_params.get("paper_ids"),
+        project_id=request.project_id,
+    )
+    if validated_paper_ids is not None:
+        req_params["paper_ids"] = validated_paper_ids
     
     try:
         response = await agent_coordinator.process(
             query=request.query,
             project_id=request.project_id,
             agent_type=request.agent_type,
-            **request.params
+            **req_params
         )
         return response.to_dict()
     except Exception as e:
@@ -351,6 +443,16 @@ async def agent_stream(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="项目不存在"
             )
+
+    req_params = dict(request.params or {})
+    validated_paper_ids = await _validate_requested_paper_ids(
+        db=db,
+        user_id=current_user.id,
+        paper_ids=req_params.get("paper_ids"),
+        project_id=request.project_id,
+    )
+    if validated_paper_ids is not None:
+        req_params["paper_ids"] = validated_paper_ids
     
     # 在外部确定路由，以便在 generate() 中使用
     # (generate 是 async generator，不能在其中抛出 HTTPException)
@@ -407,13 +509,113 @@ async def agent_stream(
             
             # 2. 对于 RetrieverAgent，使用统一的 answer_stream()
             if agent_type_used == "retriever_agent" and rag_engine.llm:
+                external_refs: List[dict] = []
+                external_context = ""
+                analysis_context = ""
+                external_query_used = ""
+                collaborative_enabled = _should_enable_collaborative(request.query, req_params)
+                collaboration_agents = ["retriever_agent"]
+
+                if collaborative_enabled:
+                    yield f"data: {json.dumps({'type': 'status', 'data': {'stage': 'collaboration', 'message': '正在执行多Agent协作证据准备...'}}, ensure_ascii=False)}\n\n"
+
+                if collaborative_enabled or _should_use_external_search(request.query, req_params):
+                    yield f"data: {json.dumps({'type': 'status', 'data': {'stage': 'external_search', 'message': '正在检索外部补充文献...'}}, ensure_ascii=False)}\n\n"
+                    try:
+                        search_agent = agent_coordinator.agents.get(AgentType.SEARCH)
+                        if search_agent:
+                            external_limit = int(req_params.get("external_limit", 5))
+                            external_min_relevance = float(req_params.get("external_min_relevance", 0.08))
+                            search_resp = await search_agent.execute(
+                                query=request.query,
+                                project_id=request.project_id,
+                                limit=max(1, min(external_limit, 10)),
+                                sources=req_params.get("external_sources"),
+                            )
+                            if isinstance(search_resp.metadata, dict):
+                                external_query_used = str(search_resp.metadata.get("query_used", "") or "")
+
+                            papers = search_resp.references or []
+                            context_parts = []
+                            for p in papers:
+                                if not isinstance(p, dict):
+                                    continue
+                                if _is_external_noise_for_query(request.query, p):
+                                    continue
+                                relevance = float(p.get("external_relevance_score", 0.0) or 0.0)
+                                if relevance and relevance < external_min_relevance:
+                                    continue
+                                title = p.get("title") or p.get("paper_title") or "外部文献"
+                                abstract = p.get("abstract") or p.get("summary") or ""
+                                tldr = p.get("tldr") or ""
+                                year = p.get("year", "N/A")
+                                source = p.get("source", "external")
+                                url = p.get("url") or ""
+                                if not abstract and not tldr:
+                                    continue
+                                if abstract:
+                                    context_parts.append(
+                                        f"- {title} ({year}, {source})\n  摘要: {str(abstract)[:900]}"
+                                    )
+                                else:
+                                    context_parts.append(f"- {title} ({year}, {source})\n  摘要: {str(tldr)[:600]}")
+                                external_refs.append(
+                                    {
+                                        "paper_id": 0,
+                                        "paper_title": title,
+                                        "chunk_index": -1,
+                                        "page_number": None,
+                                        "text": str(abstract or tldr or p.get("title") or "")[:1500],
+                                        "score": relevance,
+                                        "metadata": {"source": source, "url": url, "is_external": True},
+                                    }
+                                )
+                                if len(external_refs) >= external_limit:
+                                    break
+
+                            if context_parts:
+                                external_context = (
+                                    "【外部补充文献摘要】\n"
+                                    "以下内容来自外部学术搜索结果，请与本地上传文献共同用于回答：\n"
+                                    + "\n".join(context_parts)
+                                )
+                                collaboration_agents.append("search_agent")
+                    except Exception as e:
+                        logger.warning(f"External augmentation failed: {e}")
+
+                if collaborative_enabled:
+                    yield f"data: {json.dumps({'type': 'status', 'data': {'stage': 'analysis_agent', 'message': '正在生成分析Agent补充洞察...'}}, ensure_ascii=False)}\n\n"
+                    try:
+                        analyzer_agent = agent_coordinator.agents.get(AgentType.ANALYZER)
+                        if analyzer_agent:
+                            analysis_type = str(req_params.get("analysis_type", "comparison"))
+                            analyzer_resp = await analyzer_agent.execute(
+                                query=request.query,
+                                project_id=request.project_id,
+                                analysis_type=analysis_type,
+                            )
+                            if analyzer_resp and analyzer_resp.content:
+                                analysis_context = (
+                                    "【分析Agent补充洞察】\n"
+                                    "以下为对当前问题的分析视角，请与文献证据联合使用：\n"
+                                    + str(analyzer_resp.content)[:2000]
+                                )
+                                collaboration_agents.append("analyzer_agent")
+                    except Exception as e:
+                        logger.warning(f"Analyzer collaboration failed: {e}")
+
+                combined_extra_context = "\n\n".join(
+                    part for part in [external_context, analysis_context] if part
+                )
+
                 async for event in rag_engine.answer_stream(
                     question=request.query,
                     project_id=request.project_id,
-                    top_k=request.params.get("top_k", 5),
+                    top_k=req_params.get("top_k", 5),
                     use_memory=True,
                     conversation_history=conversation_history,
-                    paper_ids=request.params.get("paper_ids"),
+                    paper_ids=req_params.get("paper_ids"),
+                    extra_context=combined_extra_context,
                 ):
                     event_type = event.get("type")
                     
@@ -421,6 +623,8 @@ async def agent_stream(
                         references_data = await _enrich_references_with_titles(
                             db, event["data"]
                         )
+                        if external_refs:
+                            references_data = references_data + external_refs
                         # 先发送一次初始引用，便于前端提前展示
                         yield f"data: {json.dumps({'type': 'references', 'data': references_data}, ensure_ascii=False)}\n\n"
                     
@@ -456,6 +660,12 @@ async def agent_stream(
                             "method": done_data.get("method", "rag_memory_enhanced"),
                             "memory_used": done_data.get("memory_used", False),
                             "memory_count": done_data.get("memory_count", 0),
+                            "retrieval_meta": done_data.get("retrieval_meta", {}),
+                            "external_augmented": bool(external_context),
+                            "external_reference_count": len(external_refs),
+                            "external_query_used": external_query_used,
+                            "collaborative_mode": collaborative_enabled,
+                            "collaboration_agents": collaboration_agents,
                         }
             
             else:
@@ -470,7 +680,7 @@ async def agent_stream(
                         query=request.query,
                         project_id=request.project_id,
                         agent_type=agent_type_used,
-                        **request.params
+                        **req_params
                     )
                     
                     agent_type_used = response.agent_type

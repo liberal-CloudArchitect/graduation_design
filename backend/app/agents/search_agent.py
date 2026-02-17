@@ -140,7 +140,11 @@ class SearchAgent(BaseAgent):
                 result = await self._get_citation_network(paper_id)
             elif search_type == "recommendation":
                 paper_id = kwargs.get("paper_id", "")
-                result = await self._get_recommendations(paper_id, limit)
+                # 未提供 paper_id 时自动回退到常规检索，避免误判后返回空结果
+                if paper_id:
+                    result = await self._get_recommendations(paper_id, limit)
+                else:
+                    result = await self._search_papers(query, sources, limit)
             else:
                 result = await self._search_papers(query, sources, limit)
             
@@ -158,6 +162,7 @@ class SearchAgent(BaseAgent):
             await self._share_memory(
                 content=f"搜索结果({query}): {result.get('summary', '')}",
                 target_agents=["retriever_agent", "analyzer_agent"],
+                project_id=project_id,
             )
             
             return AgentResponse(
@@ -167,6 +172,7 @@ class SearchAgent(BaseAgent):
                 metadata={
                     "search_type": search_type,
                     "total": result.get("total", 0),
+                    "query_used": result.get("query_used", query),
                     "skills_used": skills_used,
                 },
                 confidence=0.8,
@@ -185,7 +191,10 @@ class SearchAgent(BaseAgent):
         query_lower = query.lower()
         if any(kw in query_lower for kw in ["引用", "citation", "cited"]):
             return "citation_network"
-        if any(kw in query_lower for kw in ["推荐", "相关", "recommend", "similar"]):
+        # 避免把“相关研究/相关方法”误判为 recommendation 模式
+        if any(kw in query_lower for kw in ["recommend", "similar paper", "paper id"]):
+            return "recommendation"
+        if "推荐" in query_lower and any(h in query_lower for h in ["论文id", "paper_id", "这篇", "该论文"]):
             return "recommendation"
         return "paper_search"
     
@@ -196,19 +205,26 @@ class SearchAgent(BaseAgent):
         papers = await self.aggregator.search(
             query=query, limit=limit, sources=sources
         )
+        query_used = self.aggregator._rewrite_query(query)
         
         # 构建摘要
         if papers:
             paper_list = "\n".join(
                 f"- {p.get('title', 'Unknown')} ({p.get('year', 'N/A')}, "
-                f"引用: {p.get('citation_count', 0)}) [{p.get('source', '')}]"
+                f"引用: {p.get('citation_count', 0)}, 相关度: {p.get('external_relevance_score', 0):.2f}) "
+                f"[{p.get('source', '')}]"
                 for p in papers[:5]
             )
             summary = f"找到{len(papers)}篇相关论文，其中前5篇：\n\n{paper_list}"
         else:
             summary = "未找到相关论文"
         
-        return {"summary": summary, "papers": papers, "total": len(papers)}
+        return {
+            "summary": summary,
+            "papers": papers,
+            "total": len(papers),
+            "query_used": query_used,
+        }
     
     async def _get_citation_network(self, paper_id: str) -> Dict[str, Any]:
         """获取引用网络"""

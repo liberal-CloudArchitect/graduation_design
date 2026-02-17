@@ -163,6 +163,7 @@ class BM25Retriever:
         self.index_name = index_name
         self.client = None
         self._initialized = False
+        self._supports_project_filter = True
     
     async def initialize(self, host: str = "localhost", port: int = 9200):
         """初始化Elasticsearch连接"""
@@ -180,12 +181,31 @@ class BM25Retriever:
             exists = await self.client.indices.exists(index=self.index_name)
             if not exists:
                 await self._create_index()
+                self._supports_project_filter = True
+            else:
+                self._supports_project_filter = await self._has_project_field()
             
             self._initialized = True
             logger.info(f"BM25 retriever initialized: {self.index_name}")
         except Exception as e:
             logger.warning(f"Elasticsearch connection failed: {e}")
             self.client = None
+
+    async def _has_project_field(self) -> bool:
+        """检测当前索引映射是否包含 project_id 字段"""
+        if not self.client:
+            return False
+        try:
+            mapping = await self.client.indices.get_mapping(index=self.index_name)
+            props = (
+                mapping.get(self.index_name, {})
+                .get("mappings", {})
+                .get("properties", {})
+            )
+            return "project_id" in props
+        except Exception as e:
+            logger.warning(f"Check project_id mapping failed: {e}")
+            return False
     
     async def _create_index(self):
         """创建搜索索引"""
@@ -194,6 +214,7 @@ class BM25Retriever:
         
         mappings = {
             "properties": {
+                "project_id": {"type": "long"},
                 "paper_id": {"type": "long"},
                 "chunk_index": {"type": "integer"},
                 "page_number": {"type": "integer"},
@@ -235,6 +256,7 @@ class BM25Retriever:
         self,
         query: str,
         top_k: int = 5,
+        project_id: Optional[int] = None,
         paper_ids: Optional[List[int]] = None
     ) -> List[RetrievalResult]:
         """BM25搜索"""
@@ -250,6 +272,9 @@ class BM25Retriever:
                 }}
             ]
             
+            if project_id is not None and self._supports_project_filter:
+                must_clauses.append({"term": {"project_id": project_id}})
+
             if paper_ids:
                 must_clauses.append({"terms": {"paper_id": paper_ids}})
             
@@ -281,6 +306,7 @@ class BM25Retriever:
     async def index(
         self,
         paper_id: int,
+        project_id: Optional[int],
         chunks: List[Dict[str, Any]]
     ):
         """索引文档"""
@@ -290,6 +316,7 @@ class BM25Retriever:
         try:
             for i, chunk in enumerate(chunks):
                 doc = {
+                    "project_id": project_id or 0,
                     "paper_id": paper_id,
                     "chunk_index": i,
                     "page_number": chunk.get("page_number", 0),
@@ -304,6 +331,20 @@ class BM25Retriever:
             await self.client.indices.refresh(index=self.index_name)
         except Exception as e:
             logger.error(f"BM25 indexing failed: {e}")
+
+    async def delete_paper(self, paper_id: int):
+        """按 paper_id 删除索引文档"""
+        if not self.client:
+            return
+        try:
+            await self.client.delete_by_query(
+                index=self.index_name,
+                body={"query": {"term": {"paper_id": paper_id}}},
+                refresh=True,
+                conflicts="proceed",
+            )
+        except Exception as e:
+            logger.warning(f"BM25 delete failed for paper {paper_id}: {e}")
 
 
 class HybridRetriever:
@@ -347,6 +388,7 @@ class HybridRetriever:
         query: str,
         query_vector: List[float],
         top_k: int = 5,
+        project_id: Optional[int] = None,
         paper_ids: Optional[List[int]] = None
     ) -> List[RetrievalResult]:
         """
@@ -363,8 +405,13 @@ class HybridRetriever:
         """
         # 并行执行两种检索
         filter_expr = None
+        filter_parts = []
+        if project_id is not None:
+            filter_parts.append(f"project_id == {project_id}")
         if paper_ids:
-            filter_expr = f"paper_id in {paper_ids}"
+            filter_parts.append(f"paper_id in {paper_ids}")
+        if filter_parts:
+            filter_expr = " && ".join(filter_parts)
         
         vector_task = self.vector_retriever.search(
             query_vector, 
@@ -375,6 +422,7 @@ class HybridRetriever:
         bm25_task = self.bm25_retriever.search(
             query,
             top_k * 2,
+            project_id,
             paper_ids
         )
         
@@ -431,15 +479,20 @@ class HybridRetriever:
     async def index_paper(
         self,
         paper_id: int,
+        project_id: Optional[int],
         chunks: List[Dict[str, Any]],
         vectors: List[List[float]]
     ):
         """索引文献到两个检索系统"""
         await asyncio.gather(
             self.vector_retriever.insert(paper_id, chunks, vectors),
-            self.bm25_retriever.index(paper_id, chunks)
+            self.bm25_retriever.index(paper_id, project_id, chunks)
         )
         logger.info(f"Indexed paper {paper_id}: {len(chunks)} chunks")
+
+    async def delete_paper(self, paper_id: int):
+        """删除文献在检索系统中的索引"""
+        await self.bm25_retriever.delete_paper(paper_id)
 
 
 # 默认检索器实例

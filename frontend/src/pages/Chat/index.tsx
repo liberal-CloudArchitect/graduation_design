@@ -99,6 +99,19 @@ const SLASH_COMMANDS: SlashCommand[] = [
         icon: <BookOutlined />,
         color: 'blue',
     },
+    {
+        command: '/deep',
+        label: '深度协作检索',
+        description: '联合本地文献、外部检索与分析Agent进行综合回答',
+        agent_type: 'retriever_agent',
+        icon: <BulbOutlined />,
+        color: 'gold',
+        params: {
+            collaborative: true,
+            use_external_search: true,
+            top_k: 8,
+        },
+    },
 ];
 
 const THINK_OPEN = '<think>';
