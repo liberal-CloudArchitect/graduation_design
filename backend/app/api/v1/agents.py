@@ -33,8 +33,8 @@ EXTERNAL_AUGMENT_HINTS = (
     "最新", "最近", "前沿", "sota", "state-of-the-art", "recent", "latest"
 )
 COLLABORATIVE_HINTS = (
-    "综述", "归纳", "总结", "比较", "对比", "方法有哪些",
-    "主要研究方法", "发展脉络", "异同", "优缺点", "综合分析"
+    "比较", "对比", "方法有哪些", "主要研究方法",
+    "发展脉络", "异同", "优缺点", "综合分析", "多角度"
 )
 EXTERNAL_BIOMED_NOISE_TERMS = (
     "rag-1", "rag-2", "vdj", "v(d)j", "lymphocyte", "immunoglobulin",
@@ -107,6 +107,17 @@ def _normalize_query_tokens(text: str) -> set:
     if not text:
         return set()
     return set(t.lower() for t in TOKEN_PATTERN.findall(text))
+
+
+def _token_overlap_ratio(query: str, text: str) -> float:
+    """计算 query 与候选文本的词面重合度（用于外部文献噪声过滤）。"""
+    q_tokens = _normalize_query_tokens(query)
+    if not q_tokens:
+        return 0.0
+    t_tokens = _normalize_query_tokens(text)
+    if not t_tokens:
+        return 0.0
+    return len(q_tokens & t_tokens) / len(q_tokens)
 
 
 def _extract_citation_spans(answer: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -525,7 +536,8 @@ async def agent_stream(
                         search_agent = agent_coordinator.agents.get(AgentType.SEARCH)
                         if search_agent:
                             external_limit = int(req_params.get("external_limit", 5))
-                            external_min_relevance = float(req_params.get("external_min_relevance", 0.08))
+                            external_min_relevance = float(req_params.get("external_min_relevance", 0.25))
+                            external_min_overlap = float(req_params.get("external_min_overlap", 0.08))
                             search_resp = await search_agent.execute(
                                 query=request.query,
                                 project_id=request.project_id,
@@ -553,6 +565,12 @@ async def agent_stream(
                                 url = p.get("url") or ""
                                 if not abstract and not tldr:
                                     continue
+                                overlap = _token_overlap_ratio(
+                                    request.query,
+                                    f"{title} {abstract} {tldr}",
+                                )
+                                if overlap < external_min_overlap:
+                                    continue
                                 if abstract:
                                     context_parts.append(
                                         f"- {title} ({year}, {source})\n  摘要: {str(abstract)[:900]}"
@@ -567,6 +585,7 @@ async def agent_stream(
                                         "page_number": None,
                                         "text": str(abstract or tldr or p.get("title") or "")[:1500],
                                         "score": relevance,
+                                        "external_overlap": overlap,
                                         "metadata": {"source": source, "url": url, "is_external": True},
                                     }
                                 )

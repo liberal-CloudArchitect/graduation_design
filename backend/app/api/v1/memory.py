@@ -24,6 +24,15 @@ class ReconstructRequest(BaseModel):
     use_llm: bool = True
 
 
+def _to_builtin(value):
+    """将 numpy 标量转换为 Python 原生类型，避免响应序列化异常。"""
+    if value is None:
+        return None
+    if type(value).__module__ == "numpy":
+        return value.item()
+    return value
+
+
 # ============ Helper: 延迟初始化 ============
 
 async def _get_memory_engine():
@@ -332,12 +341,12 @@ async def reconstruct_memory(
 
         def _memory_to_dict(m):
             return {
-                "id": m.id,
-                "content": m.content[:300],
-                "timestamp": m.timestamp,
-                "importance": m.importance,
-                "memory_type": m.memory_type,
-                "agent_source": m.agent_source,
+                "id": str(_to_builtin(m.id)),
+                "content": str(_to_builtin(m.content))[:300],
+                "timestamp": int(_to_builtin(m.timestamp)),
+                "importance": float(_to_builtin(m.importance)),
+                "memory_type": str(_to_builtin(m.memory_type)),
+                "agent_source": str(_to_builtin(m.agent_source)),
             }
 
         return {

@@ -5,8 +5,9 @@ import os
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.core.config import settings
@@ -75,6 +76,20 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url=None
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """统一处理未捕获异常，避免返回纯文本 Internal Server Error。"""
+    logger.exception(f"Unhandled error on {request.method} {request.url.path}: {exc}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "服务器内部错误",
+            "code": "INTERNAL_SERVER_ERROR",
+            "path": request.url.path,
+        },
+    )
 
 
 # 自定义ReDoc路由
@@ -148,4 +163,3 @@ if __name__ == "__main__":
         port=8000,
         reload=settings.DEBUG
     )
-

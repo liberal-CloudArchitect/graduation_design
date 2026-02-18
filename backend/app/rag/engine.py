@@ -8,10 +8,13 @@ from typing import List, Optional, Dict, Any, AsyncGenerator, Tuple
 from loguru import logger
 import json
 import re
+from sqlalchemy import select
 
 from app.core.config import settings
 from app.rag.memory_engine import DynamicMemoryEngine
 from app.rag.prompts import build_rag_prompt, build_conversation_history_text
+from app.models.database import async_session_maker
+from app.models.paper import Paper
 
 
 class RAGEngine:
@@ -943,8 +946,43 @@ class RAGEngine:
                     })
                 else:
                     logger.warning(f"Chunk not found: paper_id={paper_id}, chunk_index={chunk_index}")
-        
+
+        # 统一补全文献标题，避免下游显示 Unknown
+        await self._attach_paper_titles(docs)
         return docs
+
+    async def _attach_paper_titles(self, docs: List[Dict[str, Any]]) -> None:
+        """为检索文档补全文献标题（就地修改 docs）。"""
+        if not docs:
+            return
+
+        paper_ids = {
+            int(d.get("paper_id"))
+            for d in docs
+            if isinstance(d, dict) and d.get("paper_id") is not None
+        }
+        if not paper_ids:
+            return
+
+        try:
+            async with async_session_maker() as db:
+                result = await db.execute(
+                    select(Paper.id, Paper.title).where(Paper.id.in_(paper_ids))
+                )
+                id_to_title = {int(pid): title for pid, title in result.all() if pid is not None}
+
+            for doc in docs:
+                if not isinstance(doc, dict):
+                    continue
+                pid = doc.get("paper_id")
+                if pid is None:
+                    continue
+                title = id_to_title.get(int(pid))
+                if title:
+                    doc["title"] = title
+                    doc["paper_title"] = title
+        except Exception as e:
+            logger.warning(f"Attach paper titles failed: {e}")
     
     def _build_context(self, docs: List[Dict]) -> str:
         """构建Prompt上下文"""

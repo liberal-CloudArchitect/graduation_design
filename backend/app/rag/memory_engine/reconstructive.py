@@ -14,6 +14,15 @@ from .cue_extractor import CueExtractor, StructuredCue, cue_extractor as default
 from .dynamic_memory import DynamicMemoryEngine, dynamic_memory_engine
 
 
+def _to_builtin(value: Any) -> Any:
+    """将 numpy 标量转换为 Python 原生类型，避免 JSON 序列化失败。"""
+    if value is None:
+        return None
+    if type(value).__module__ == "numpy":
+        return value.item()
+    return value
+
+
 @dataclass
 class ReconstructedMemory:
     """
@@ -319,16 +328,16 @@ class ReconstructiveMemory:
                 if rid in exclude_ids:
                     continue
                 neighbors.append(MemoryNode(
-                    id=rid,
-                    content=r.get("content", ""),
+                    id=str(_to_builtin(rid)),
+                    content=str(_to_builtin(r.get("content", ""))),
                     embedding=[],
-                    timestamp=r.get("timestamp", 0),
-                    importance=r.get("importance", 1.0),
-                    access_count=r.get("access_count", 0),
-                    memory_type=r.get("memory_type", "dynamic"),
+                    timestamp=int(_to_builtin(r.get("timestamp", 0))),
+                    importance=float(_to_builtin(r.get("importance", 1.0))),
+                    access_count=int(_to_builtin(r.get("access_count", 0))),
+                    memory_type=str(_to_builtin(r.get("memory_type", "dynamic"))),
                     relations={},
-                    agent_source=r.get("agent_source", "qa_agent"),
-                    project_id=r.get("project_id", 0),
+                    agent_source=str(_to_builtin(r.get("agent_source", "qa_agent"))),
+                    project_id=int(_to_builtin(r.get("project_id", 0))),
                 ))
             
             # 按与种子时间的距离排序（最近优先）

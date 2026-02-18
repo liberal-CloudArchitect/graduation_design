@@ -38,6 +38,8 @@ class PDFDocument:
 
 class TextExtractor:
     """Layer 1: 基础文本提取 (PDFPlumber)"""
+
+    _LINE_MERGE_TOP_GAP = 2.5
     
     def extract(self, pdf_path: str) -> List[PDFPage]:
         """提取PDF文本"""
@@ -51,7 +53,7 @@ class TextExtractor:
         try:
             with pdfplumber.open(pdf_path) as pdf:
                 for i, page in enumerate(pdf.pages):
-                    text = page.extract_text() or ""
+                    text = self._extract_page_text(page)
                     pages.append(PDFPage(
                         page_number=i + 1,
                         text=text
@@ -61,6 +63,62 @@ class TextExtractor:
             return self._fallback_extract(pdf_path)
         
         return pages
+
+    def _extract_page_text(self, page) -> str:
+        """
+        优先使用 extract_words 重建文本，减少词间空格丢失。
+        回退到 extract_text。
+        """
+        try:
+            words = page.extract_words(
+                x_tolerance=2,
+                y_tolerance=3,
+                keep_blank_chars=False,
+            ) or []
+        except Exception:
+            words = []
+
+        if words:
+            text = self._rebuild_text_from_words(words)
+            if text and len(text) >= 20:
+                return text
+
+        return (page.extract_text() or "").strip()
+
+    def _rebuild_text_from_words(self, words: List[Dict[str, Any]]) -> str:
+        """按行重建 extract_words 结果。"""
+        if not words:
+            return ""
+
+        ordered = sorted(
+            words,
+            key=lambda w: (float(w.get("top", 0.0)), float(w.get("x0", 0.0))),
+        )
+
+        lines: List[List[str]] = []
+        current_line: List[str] = []
+        current_top: Optional[float] = None
+
+        for w in ordered:
+            token = str(w.get("text", "") or "").strip()
+            if not token:
+                continue
+
+            top = float(w.get("top", 0.0))
+            if current_top is None or abs(top - current_top) <= self._LINE_MERGE_TOP_GAP:
+                current_line.append(token)
+                if current_top is None:
+                    current_top = top
+            else:
+                lines.append(current_line)
+                current_line = [token]
+                current_top = top
+
+        if current_line:
+            lines.append(current_line)
+
+        merged = "\n".join(" ".join(line) for line in lines)
+        return re.sub(r"[ \t]+", " ", merged).strip()
     
     def _fallback_extract(self, pdf_path: str) -> List[PDFPage]:
         """备用提取方法 (PyPDF2)"""
@@ -115,12 +173,11 @@ class MetadataExtractor:
     def __init__(self):
         # 常见的元数据模式
         self.title_patterns = [
-            r'^(.+?)\n\n',  # 第一行通常是标题
-            r'Title[:\s]+(.+?)(?:\n|$)',
+            r'^\s*([^\n]{12,220})\n',
+            r'(?im)^title[:\s]+([^\n]{10,220})$',
         ]
         self.author_patterns = [
             r'(?:Authors?|By)[:\s]+(.+?)(?:\n|$)',
-            r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)(?:,|\sand|\n)',
         ]
         self.abstract_patterns = [
             r'Abstract[:\s]*\n?(.+?)(?:\n\n|Keywords|Introduction)',
@@ -151,10 +208,50 @@ class MetadataExtractor:
         'arxiv', 'proceedings', 'conference', 'journal of', 'vol.',
         'pages ', 'pp.', '©', 'doi:', 'issn', 'ieee', 'acm',
         'springer', 'elsevier', 'under review',
+        'information 20', 'editorial', 'journal', 'mdpi',
+    ]
+
+    _AUTHOR_NOISE_KEYWORDS = [
+        "open access",
+        "citation",
+        "article",
+        "published",
+        "license",
+        "doi",
+        "received",
+        "accepted",
+        "correspondence",
+    ]
+
+    _ABSTRACT_CUTOFF_MARKERS = (
+        "keywords",
+        "index terms",
+        "introduction",
+        "1.",
+        "i.",
+        "citation:",
+    )
+    _TITLE_NOISE_TOKENS = [
+        "academiceditors",
+        "academic editors",
+        "received:",
+        "accepted:",
+        "published:",
+        "citation:",
+        "doi:",
+        "keywords:",
+        "keywords",
+        "our daily lives",
+        "despite their awareness",
+        "in this article",
+        "copyright",
     ]
 
     def _is_likely_title(self, text: str) -> bool:
         """判断文本是否可能是标题（而非版权声明等）"""
+        text = self._clean_text(text)
+        if not text:
+            return False
         lower = text.lower()
         # 包含过多非标题关键词则排除
         hit_count = sum(1 for kw in self._NON_TITLE_KEYWORDS if kw in lower)
@@ -163,52 +260,172 @@ class MetadataExtractor:
         # 过长一般不是标题
         if len(text) > 200:
             return False
+        # 过短一般不是标题
+        if len(text) < 12:
+            return False
+        # 含数字过多通常是期刊头/页码信息
+        digit_ratio = sum(ch.isdigit() for ch in text) / max(1, len(text))
+        if digit_ratio > 0.2:
+            return False
+        # 标题长度（词数）通常有限
+        word_count = len(text.split())
+        if word_count > 28:
+            return False
         # 全是小写且很长，通常不是标题
         if text == text.lower() and len(text) > 80:
+            return False
+        # 标题通常不是单词或双词短语
+        if len(text.split()) <= 2 and not re.search(r'[\u4e00-\u9fff]', text):
+            return False
+        lower_no_space = lower.replace(" ", "")
+        if any(tok in lower_no_space for tok in [t.replace(" ", "") for t in self._TITLE_NOISE_TOKENS]):
+            return False
+        # 标题很少以完整句号结尾
+        if text.endswith(".") and word_count > 6:
+            return False
+        # 标题很少包含大量作者分隔符
+        if text.count(";") >= 2:
+            return False
+        return True
+
+    def is_reliable_authors(self, authors: List[str]) -> bool:
+        """判断作者列表质量是否可靠。"""
+        if not authors:
+            return False
+        valid = [a for a in authors if self._is_valid_author(a)]
+        return len(valid) >= max(1, len(authors) // 2)
+
+    def is_reliable_abstract(self, abstract: Optional[str]) -> bool:
+        """判断摘要质量是否可靠。"""
+        if not abstract:
+            return False
+        text = self._clean_text(abstract)
+        if len(text) < 60:
+            return False
+        # 英文摘要若几乎无空格，通常是提取质量差
+        has_cjk = bool(re.search(r'[\u4e00-\u9fff]', text))
+        alpha_count = sum(ch.isalpha() for ch in text)
+        space_count = text.count(" ")
+        if not has_cjk and alpha_count > 200 and space_count < max(10, int(alpha_count * 0.02)):
             return False
         return True
 
     def _extract_title(self, text: str) -> Optional[str]:
         """提取标题"""
+        candidates: List[str] = []
         # 尝试用 PDF metadata 标记模式
         for pattern in self.title_patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
-                title = match.group(1).strip()
-                if 10 < len(title) < 300 and self._is_likely_title(title):
-                    return title
+                title = self._clean_text(match.group(1))
+                if self._is_likely_title(title):
+                    candidates.append(title)
         
-        # 备用：从前 30 行中找最可能的标题行
+        # 备用：从前 40 行中找最可能的标题行
         lines = text.split('\n')
-        for line in lines[:30]:
-            line = line.strip()
-            if 10 < len(line) < 200 and self._is_likely_title(line):
-                return line
-        
-        return None
-    
+        for line in lines[:40]:
+            line = self._clean_text(line)
+            if self._is_likely_title(line):
+                candidates.append(line)
+
+        if not candidates:
+            return None
+
+        # 选分数最高的候选标题
+        candidates = list(dict.fromkeys(candidates))
+        candidates.sort(key=self._score_title, reverse=True)
+        return candidates[0]
+
+    def _score_title(self, title: str) -> float:
+        """标题候选打分：更长、更像句子、更少噪声优先。"""
+        score = 0.0
+        words = title.split()
+        score += min(len(title), 160) / 40.0
+        if 4 <= len(words) <= 24:
+            score += 2.0
+        if ":" in title or "-" in title:
+            score += 0.6
+        if re.search(r'[A-Z][a-z]+', title):
+            score += 0.4
+        score -= sum(1 for kw in self._NON_TITLE_KEYWORDS if kw in title.lower()) * 1.5
+        return score
+
+    def _clean_text(self, text: Optional[str]) -> str:
+        return re.sub(r'\s+', ' ', str(text or '')).strip()
+
+    def _is_valid_author(self, name: str) -> bool:
+        n = self._clean_text(name)
+        if len(n) < 2 or len(n) > 60:
+            return False
+        lower = n.lower()
+        if any(k in lower for k in self._AUTHOR_NOISE_KEYWORDS):
+            return False
+        if re.search(r'\d', n):
+            return False
+        if n.count(",") > 1:
+            return False
+        tokens = [t for t in n.split(" ") if t]
+        if len(tokens) > 6:
+            return False
+        # 英文名至少应有首字母大写特征；中文名允许无空格
+        if re.search(r'[A-Za-z]', n) and not any(t[0].isupper() for t in tokens if t):
+            return False
+        return True
+
     def _extract_authors(self, text: str) -> List[str]:
         """提取作者"""
         authors = []
+        # 仅在论文头部文本中提取作者，避免被正文污染
+        head_text = text[:1500]
+        abstract_pos = re.search(r'(?i)\babstract\b|摘\s*要', head_text)
+        if abstract_pos:
+            head_text = head_text[:abstract_pos.start()]
+
         for pattern in self.author_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
+            matches = re.findall(pattern, head_text, re.IGNORECASE)
             for match in matches:
                 # 分割多个作者
                 parts = re.split(r'[,;，；]|\sand\s', match)
                 for part in parts:
-                    part = part.strip()
-                    if part and len(part) > 2 and len(part) < 50:
+                    part = self._clean_text(part)
+                    if self._is_valid_author(part):
                         authors.append(part)
-        
-        return list(set(authors))[:10]  # 最多10个作者
+
+        # 回退：尝试从前若干行中识别作者行
+        if not authors:
+            for line in head_text.split("\n")[:25]:
+                line = self._clean_text(line)
+                if not line:
+                    continue
+                lower = line.lower()
+                if any(k in lower for k in ("abstract", "citation", "doi", "keywords", "introduction")):
+                    continue
+                parts = [self._clean_text(p) for p in re.split(r'[,;，；]|\sand\s', line)]
+                valid_parts = [p for p in parts if self._is_valid_author(p)]
+                if 2 <= len(valid_parts) <= 8:
+                    authors.extend(valid_parts)
+                    break
+
+        # 保序去重
+        deduped = list(dict.fromkeys(authors))
+        return deduped[:10]
     
     def _extract_abstract(self, text: str) -> Optional[str]:
         """提取摘要"""
         for pattern in self.abstract_patterns:
             match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
             if match:
-                abstract = match.group(1).strip()
-                if len(abstract) > 50:
+                abstract = self._clean_text(match.group(1))
+                # 裁剪到摘要正文
+                lower = abstract.lower()
+                cutoff_pos = len(abstract)
+                for marker in self._ABSTRACT_CUTOFF_MARKERS:
+                    pos = lower.find(marker)
+                    if pos > 80:
+                        cutoff_pos = min(cutoff_pos, pos)
+                abstract = abstract[:cutoff_pos].strip()
+
+                if self.is_reliable_abstract(abstract):
                     return abstract[:2000]  # 限制长度
         
         return None
@@ -354,8 +571,29 @@ class PDFParser:
         # 如果有布局数据，用布局增强元数据
         if layout_data:
             layout_metadata = self._extract_metadata_from_layout(layout_data)
-            # 布局提取的元数据优先级更高
+            # 标题：缺失或低质量时优先采用布局结果
+            layout_title = layout_metadata.get("title")
+            current_title = metadata.get("title")
+            if layout_title and (not current_title or not self.metadata_extractor._is_likely_title(current_title)):
+                metadata["title"] = layout_title
+
+            # 作者：缺失或低质量时优先采用布局结果
+            layout_authors = layout_metadata.get("authors") or []
+            current_authors = metadata.get("authors") or []
+            if layout_authors and not self.metadata_extractor.is_reliable_authors(current_authors):
+                metadata["authors"] = layout_authors
+
+            # 摘要：缺失或低质量时优先采用布局结果
+            layout_abstract = layout_metadata.get("abstract")
+            current_abstract = metadata.get("abstract")
+            if layout_abstract and not self.metadata_extractor.is_reliable_abstract(current_abstract):
+                if self.metadata_extractor.is_reliable_abstract(layout_abstract):
+                    metadata["abstract"] = layout_abstract
+
+            # 其他字段保持“缺失再补齐”
             for key, value in layout_metadata.items():
+                if key in {"title", "authors", "abstract"}:
+                    continue
                 if value and not metadata.get(key):
                     metadata[key] = value
         

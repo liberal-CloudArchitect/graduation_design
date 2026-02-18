@@ -10,7 +10,7 @@ from datetime import datetime
 
 from app.core.deps import get_db, get_current_user
 from app.models.user import User, Project
-from app.models.paper import Paper
+from app.models.paper import Paper, Conversation
 
 
 router = APIRouter()
@@ -236,6 +236,17 @@ async def delete_project(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="项目不存在"
         )
-    
+
+    # 先删除该项目下的对话，避免外键约束导致删除项目失败
+    conv_result = await db.execute(
+        select(Conversation).where(
+            Conversation.project_id == project.id,
+            Conversation.user_id == current_user.id,
+        )
+    )
+    conversations = conv_result.scalars().all()
+    for conv in conversations:
+        await db.delete(conv)
+
     await db.delete(project)
     await db.commit()

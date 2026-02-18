@@ -195,8 +195,41 @@ def _build_kg_regex(text: str, max_entities: int = 30) -> dict:
         "这个", "那个", "一个", "我们", "他们", "可以", "已经", "进行",
         "使用", "通过", "其中", "以及", "由于", "因此", "然而",
     }
-    
-    all_entities = [e for e in (en_entities + en_acronyms + zh_entities) if e not in stop_words and len(e) > 1]
+
+    noise_entities = {
+        "however", "moreover", "nevertheless", "forexample", "example",
+        "information", "keywords", "academiceditors", "citation",
+        "results", "discussion", "method", "methods",
+    }
+
+    def _normalize_entity(entity: str) -> str:
+        return re.sub(r"\s+", " ", str(entity or "")).strip()
+
+    def _is_valid_entity(entity: str) -> bool:
+        e = _normalize_entity(entity)
+        if len(e) < 2 or len(e) > 80:
+            return False
+
+        lower = e.lower().replace(" ", "")
+        if e in stop_words or lower in noise_entities:
+            return False
+        if any(tok in lower for tok in ("http", "www", "doi", "figure", "table", "page")):
+            return False
+        if re.fullmatch(r"[0-9\W_]+", e):
+            return False
+
+        # 英文实体应具备专有名词/缩写特征，避免普通连词进入图谱
+        if re.search(r"[A-Za-z]", e):
+            words = e.split()
+            if len(words) > 8:
+                return False
+            if not (re.search(r"\b[A-Z]{2,}\b", e) or any(w[:1].isupper() for w in words if w)):
+                return False
+
+        return True
+
+    normalized_entities = [_normalize_entity(e) for e in (en_entities + en_acronyms + zh_entities)]
+    all_entities = [e for e in normalized_entities if _is_valid_entity(e)]
     entity_counts = Counter(all_entities)
     top_entities = [e for e, _ in entity_counts.most_common(max_entities)]
 
@@ -205,21 +238,27 @@ def _build_kg_regex(text: str, max_entities: int = 30) -> dict:
 
     # 构建共现关系（同一句中出现的实体）
     sentences = re.split(r'[.!?。！？\n]', text)
-    edges = []
-    edge_set = set()
+    edge_counter = Counter()
 
     for sentence in sentences:
         present = [e for e in top_entities if e in sentence]
         for i in range(len(present)):
             for j in range(i + 1, len(present)):
                 key = tuple(sorted([present[i], present[j]]))
-                if key not in edge_set:
-                    edge_set.add(key)
-                    edges.append({
-                        "source": present[i],
-                        "target": present[j],
-                        "relation": "co_occurrence",
-                    })
+                edge_counter[key] += 1
+
+    # 仅保留高频边，避免噪声边过多
+    max_edges = max(max_entities * 3, 20)
+    edges = []
+    for (src, tgt), freq in edge_counter.most_common(max_edges):
+        if freq < 1:
+            continue
+        edges.append({
+            "source": src,
+            "target": tgt,
+            "relation": "co_occurrence",
+            "weight": freq,
+        })
 
     nodes = [{"id": e, "type": "entity"} for e in top_entities]
 

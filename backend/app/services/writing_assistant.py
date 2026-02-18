@@ -284,9 +284,14 @@ class WritingAssistant:
         
         suggestions = []
         for i, ref in enumerate(references):
+            fallback_title = (
+                ref.get("title")
+                or ref.get("paper_title")
+                or (f"Paper {ref.get('paper_id')}" if ref.get("paper_id") is not None else "Untitled Reference")
+            )
             suggestions.append({
                 "index": i + 1,
-                "title": ref.get("title", "Unknown"),
+                "title": fallback_title,
                 "text_snippet": ref.get("text", "")[:200],
                 "relevance_score": ref.get("score", 0),
                 "citation_format": f"[{i+1}]"

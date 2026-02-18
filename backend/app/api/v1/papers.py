@@ -217,6 +217,45 @@ def _extract_publication_date(metadata: dict, full_text: str):
     return None
 
 
+def _is_reliable_paper_title(title: Optional[str]) -> bool:
+    """判断解析出的标题是否可用，过滤明显噪声标题。"""
+    if not title:
+        return False
+    t = str(title).strip()
+    if len(t) < 12 or len(t) > 260:
+        return False
+    lower = t.lower()
+    noise_tokens = (
+        "keywords:",
+        "citation:",
+        "academic editors",
+        "academiceditors",
+        "received:",
+        "accepted:",
+        "doi:",
+        "copyright",
+    )
+    if any(tok in lower for tok in noise_tokens):
+        return False
+    if t.count(";") >= 2:
+        return False
+    if "." in t and len(t.split()) > 8:
+        return False
+    if not (t[0].isupper() or re.match(r"[\u4e00-\u9fff]", t[0])):
+        return False
+    sentence_like_markers = (
+        "in this article",
+        "our daily lives",
+        "despite",
+        "whether",
+    )
+    if any(marker in lower for marker in sentence_like_markers):
+        return False
+    if len(t.split()) <= 2:
+        return False
+    return True
+
+
 # ============ Background Tasks ============
 
 async def process_paper_async(paper_id: int, file_path: str):
@@ -248,8 +287,13 @@ async def process_paper_async(paper_id: int, file_path: str):
             parser = PDFParser()
             doc = await parser.parse(file_path)
             
-            # 更新元数据
-            paper.title = doc.title or os.path.basename(file_path)
+            # 更新元数据：解析标题质量不足时，保留上传文件名（去扩展名）作为兜底
+            parsed_title = (doc.title or "").strip()
+            if _is_reliable_paper_title(parsed_title):
+                paper.title = parsed_title
+            else:
+                original_name = (paper.title or os.path.basename(file_path)).strip()
+                paper.title = os.path.splitext(original_name)[0][:500]
             paper.authors = ", ".join(doc.authors) if doc.authors else None
             paper.abstract = doc.abstract
             paper.page_count = doc.page_count
