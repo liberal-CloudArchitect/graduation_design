@@ -1,0 +1,24 @@
+# OS
+.DS_Store
+
+# Python cache/artifacts
+__pycache__/
+*.py[cod]
+
+# Test/runtime generated artifacts (do not commit)
+backend/uploads/
+backend/tests/llm_eval_results/
+MinerU2.5-2509-1.2B/added_tokens.json
+MinerU2.5-2509-1.2B/b637498ea158c877bfb08c5bb2bc7fe034d6b256e2c8b6688ac7413e91562721
+MinerU2.5-2509-1.2B/chat_template.json
+MinerU2.5-2509-1.2B/config.json
+MinerU2.5-2509-1.2B/generation_config.json
+MinerU2.5-2509-1.2B/gitattributes
+MinerU2.5-2509-1.2B/merges.txt
+MinerU2.5-2509-1.2B/preprocessor_config.json
+MinerU2.5-2509-1.2B/README.md
+MinerU2.5-2509-1.2B/special_tokens_map.json
+MinerU2.5-2509-1.2B/tokenizer_config.json
+MinerU2.5-2509-1.2B/tokenizer.json
+MinerU2.5-2509-1.2B/video_preprocessor_config.json
+MinerU2.5-2509-1.2B/vocab.json
