@@ -1,0 +1,419 @@
+{
+  "version": "1.0",
+  "description": "RetrievalBench - 检索质量评测集",
+  "created_at": "2026-03-03",
+  "note": "基于 test_doc/ 中 4 篇论文构建。paper_id 为运行时动态分配，此处用 pdf_filename 作为稳定标识。评测脚本在上传论文后需建立 filename → paper_id 映射。",
+  "paper_index": {
+    "gao_2024": "Gao 等 - 2024 - Retrieval-Augmented Generation for Large Language Models A Survey.pdf",
+    "fan_2024": "Fan 等 - 2024 - A Survey on RAG Meeting LLMs Towards Retrieval-Augmented Large Language Models.pdf",
+    "gupta_2024": "Gupta 等 - 2024 - A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Fut.pdf",
+    "cyber_2024": "Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strateg.pdf"
+  },
+  "categories": {
+    "precise_term": "精确术语查询 - 明确指向特定概念/事实",
+    "semantic_fuzzy": "语义模糊查询 - 需要理解语义关联",
+    "cross_doc": "跨文献查询 - 需要综合多篇论文信息"
+  },
+  "items": [
+    {
+      "id": "RB-001",
+      "query": "What are the main components of a RAG system?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["retriever", "generator", "indexing", "retrieval", "generation"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-002",
+      "query": "What is Naive RAG and what are its limitations?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024"],
+      "relevant_keywords": ["naive RAG", "limitations", "hallucination", "chunking"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-003",
+      "query": "How does Advanced RAG differ from Naive RAG?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024"],
+      "relevant_keywords": ["advanced RAG", "pre-retrieval", "post-retrieval", "optimization"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-004",
+      "query": "What is Modular RAG architecture?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024"],
+      "relevant_keywords": ["modular RAG", "modules", "routing", "composition"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-005",
+      "query": "What dense retrieval methods are used in RAG systems?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["dense retrieval", "DPR", "embedding", "bi-encoder", "vector"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-006",
+      "query": "What evaluation benchmarks are used for RAG?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "gupta_2024"],
+      "relevant_keywords": ["benchmark", "evaluation", "metrics", "RAGAS", "faithfulness"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-007",
+      "query": "How is chunk size determined in RAG indexing?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["chunk", "chunking", "granularity", "window size", "overlap"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-008",
+      "query": "What reranking methods are applied after retrieval?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["reranking", "cross-encoder", "post-retrieval", "relevance"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-009",
+      "query": "What is query transformation in RAG?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024"],
+      "relevant_keywords": ["query transformation", "query rewriting", "HyDE", "sub-query"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-010",
+      "query": "How does RAG handle hallucination in LLMs?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["hallucination", "faithfulness", "grounding", "factual"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-011",
+      "query": "What is the role of knowledge graphs in RAG?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["knowledge graph", "structured knowledge", "entity", "relation"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-012",
+      "query": "What fine-tuning approaches are used for RAG retrievers?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["fine-tuning", "retriever training", "RLHF", "adapter"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-013",
+      "query": "What is the REPLUG framework?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["REPLUG", "black-box", "retrieval plugin"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-014",
+      "query": "How is retrieval augmentation applied in code generation?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["code generation", "code retrieval", "programming"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-015",
+      "query": "What is Self-RAG and how does it work?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024"],
+      "relevant_keywords": ["Self-RAG", "self-reflection", "adaptive retrieval", "critic"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-016",
+      "query": "What sparse retrieval methods like BM25 are discussed?",
+      "category": "precise_term",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["BM25", "sparse", "TF-IDF", "lexical", "keyword"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-017",
+      "query": "What is the CookieAware game?",
+      "category": "precise_term",
+      "relevant_papers": ["cyber_2024"],
+      "relevant_keywords": ["CookieAware", "game", "cybersecurity", "cookies"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-018",
+      "query": "How many participants were in the cybersecurity study?",
+      "category": "precise_term",
+      "relevant_papers": ["cyber_2024"],
+      "relevant_keywords": ["participants", "sample", "students", "young adults"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-019",
+      "query": "What pre-test and post-test methodology was used in the cybersecurity experiment?",
+      "category": "precise_term",
+      "relevant_papers": ["cyber_2024"],
+      "relevant_keywords": ["pre-test", "post-test", "experimental", "control group", "quasi-experimental"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-020",
+      "query": "What is Retrieval-Augmented Language Model (RALM)?",
+      "category": "precise_term",
+      "relevant_papers": ["fan_2024"],
+      "relevant_keywords": ["RALM", "retrieval-augmented", "language model"],
+      "difficulty": "easy"
+    },
+    {
+      "id": "RB-021",
+      "query": "How does retrieval quality affect the overall generation quality in RAG?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["retrieval quality", "generation quality", "noise", "irrelevant", "context"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-022",
+      "query": "What challenges arise when combining retrieval with generation?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["challenges", "integration", "noise", "latency", "robustness"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-023",
+      "query": "How can RAG systems be made more efficient for production deployment?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "gupta_2024"],
+      "relevant_keywords": ["efficiency", "production", "latency", "caching", "optimization"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-024",
+      "query": "What role does context window length play in RAG performance?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["context window", "long context", "token limit", "compression"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-025",
+      "query": "How do different embedding models impact retrieval effectiveness?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["embedding", "model selection", "representation", "similarity"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-026",
+      "query": "What is the relationship between retrieval granularity and answer quality?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["granularity", "chunk", "passage", "document", "quality"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-027",
+      "query": "How can game-based learning improve technology awareness among young people?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["cyber_2024"],
+      "relevant_keywords": ["game-based", "learning", "awareness", "young adults", "informal learning"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-028",
+      "query": "What privacy concerns are addressed through cybersecurity education?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["cyber_2024"],
+      "relevant_keywords": ["privacy", "cookies", "tracking", "awareness", "data protection"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-029",
+      "query": "How does adaptive retrieval decide when to retrieve external knowledge?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["adaptive", "when to retrieve", "threshold", "confidence", "active retrieval"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-030",
+      "query": "What are the limitations of current RAG evaluation methods?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "gupta_2024"],
+      "relevant_keywords": ["evaluation", "limitations", "benchmark", "metrics", "human evaluation"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-031",
+      "query": "How do multimodal RAG systems handle non-textual data?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["multimodal", "image", "table", "non-textual", "visual"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-032",
+      "query": "What techniques help reduce latency in RAG pipelines?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "gupta_2024"],
+      "relevant_keywords": ["latency", "speed", "caching", "speculative", "parallel"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-033",
+      "query": "How does document structure awareness improve retrieval results?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["structure", "hierarchy", "section", "document", "metadata"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-034",
+      "query": "What approaches exist for handling conflicting information in retrieved documents?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["conflicting", "contradiction", "inconsistency", "robustness"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-035",
+      "query": "How effective is informal learning compared to traditional methods for cybersecurity?",
+      "category": "semantic_fuzzy",
+      "relevant_papers": ["cyber_2024"],
+      "relevant_keywords": ["informal learning", "traditional", "comparison", "effectiveness", "formal"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-036",
+      "query": "Compare the RAG evolution taxonomies proposed by Gao, Fan, and Gupta surveys.",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["taxonomy", "evolution", "stages", "classification", "comparison"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-037",
+      "query": "What do all three RAG surveys agree on as the most important research challenges?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["challenges", "consensus", "open problems", "future"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-038",
+      "query": "How do different surveys define the boundary between RAG and fine-tuning?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["fine-tuning", "boundary", "RAG vs fine-tuning", "complementary"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-039",
+      "query": "Compare the retrieval enhancement techniques discussed across the RAG surveys.",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["retrieval enhancement", "query expansion", "re-ranking", "hybrid"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-040",
+      "query": "What application domains are covered across all four project papers?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024", "cyber_2024"],
+      "relevant_keywords": ["application", "domain", "NLP", "question answering", "education", "cybersecurity"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-041",
+      "query": "How do the three surveys differently categorize retrieval methods?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["categorize", "taxonomy", "retrieval methods", "classification"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-042",
+      "query": "What evaluation frameworks are proposed or referenced across the RAG surveys?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["evaluation framework", "RAGAS", "benchmark", "metrics"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-043",
+      "query": "Compare educational methodology in the cybersecurity paper with knowledge delivery in RAG systems.",
+      "category": "cross_doc",
+      "relevant_papers": ["cyber_2024", "gao_2024"],
+      "relevant_keywords": ["education", "knowledge delivery", "learning", "information retrieval"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-044",
+      "query": "What are the different perspectives on multi-hop reasoning in RAG across surveys?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["multi-hop", "reasoning", "chain", "iterative retrieval"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-045",
+      "query": "How do surveys differ in their treatment of RAG for domain-specific applications?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["domain-specific", "medical", "legal", "scientific", "specialized"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-046",
+      "query": "What is the consensus on hybrid search combining sparse and dense retrieval?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["hybrid search", "sparse", "dense", "fusion", "combination"],
+      "difficulty": "moderate"
+    },
+    {
+      "id": "RB-047",
+      "query": "How do the surveys discuss the trade-off between retrieval recall and precision?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["recall", "precision", "trade-off", "top-k", "relevance"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-048",
+      "query": "What future research directions are uniquely proposed by each survey?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["future", "research direction", "open questions", "trends"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-049",
+      "query": "Compare how surveys handle the topic of RAG with instruction-tuned LLMs.",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024"],
+      "relevant_keywords": ["instruction-tuning", "chat models", "alignment", "RLHF"],
+      "difficulty": "hard"
+    },
+    {
+      "id": "RB-050",
+      "query": "What scalability concerns are raised across the project papers?",
+      "category": "cross_doc",
+      "relevant_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "relevant_keywords": ["scalability", "large-scale", "index", "performance", "cost"],
+      "difficulty": "moderate"
+    }
+  ]
+}

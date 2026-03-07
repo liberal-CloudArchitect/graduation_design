@@ -53,6 +53,12 @@ class AnswerResponse(BaseModel):
     method: str = "rag"
 
 
+class SearchResponse(BaseModel):
+    """检索响应"""
+    references: List[ReferenceItem]
+    method: str = "retrieval"
+
+
 class ConversationMessage(BaseModel):
     """对话消息"""
     role: str  # user / assistant
@@ -242,6 +248,71 @@ async def ask_question(
         conversation_id=conversation.id,
         method=result.get("method", "rag")
     )
+
+
+@router.post("/search", response_model=SearchResponse)
+async def search_documents(
+    request: QuestionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    纯检索接口
+
+    仅返回引用结果，不触发 LLM 生成，也不写入对话历史。
+    """
+    if request.project_id:
+        result = await db.execute(
+            select(Project).where(
+                Project.id == request.project_id,
+                Project.user_id == current_user.id
+            )
+        )
+        if not result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="项目不存在"
+            )
+
+    validated_paper_ids = await _validate_requested_paper_ids(
+        db=db,
+        user_id=current_user.id,
+        paper_ids=request.paper_ids,
+        project_id=request.project_id,
+    )
+
+    try:
+        raw_refs = await rag_engine.search(
+            query=request.question,
+            project_id=request.project_id,
+            top_k=request.top_k,
+            paper_ids=validated_paper_ids,
+        )
+    except Exception as e:
+        logger.error(f"RAG search error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"RAG检索失败: {str(e)}"
+        )
+
+    enriched_refs = await _enrich_references_with_titles(db, raw_refs)
+    references = [
+        ReferenceItem(
+            paper_id=ref.get("paper_id", 0),
+            paper_title=ref.get("paper_title") or ref.get("title"),
+            chunk_index=ref.get("chunk_index", 0),
+            page_number=ref.get("page_number"),
+            text=ref.get("text", ""),
+            score=ref.get("score", 0),
+            display_score=ref.get("display_score"),
+            raw_score=ref.get("raw_score"),
+            citation_context=ref.get("citation_context"),
+            citation_number=ref.get("citation_number"),
+            citation_spans=ref.get("citation_spans"),
+        )
+        for ref in enriched_refs
+    ]
+    return SearchResponse(references=references, method="retrieval")
 
 
 @router.post("/stream")

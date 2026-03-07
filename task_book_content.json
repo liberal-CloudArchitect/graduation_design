@@ -1,0 +1,51 @@
+{
+  "section_1": [
+    "随着全球科研活动的蓬勃发展，学术文献的数量呈现出爆炸式增长的态势。据统计，仅Scopus数据库每年新增收录的论文数量已超过400万篇，Web of Science等主流数据库的收录量也在持续攀升。面对海量且不断增长的学术文献资源，科研人员在文献检索、阅读、分析与综述撰写等环节投入了大量的时间和精力。传统的文献管理方式——如人工阅读全文、手动标注关键信息、逐篇整理笔记——已经越来越难以满足高效科研的现实需求，信息过载问题日益成为制约科研效率的重要瓶颈。",
+    "目前，市面上已有多种类型的文献相关工具，但各自存在不同程度的局限性。以Zotero、EndNote等为代表的文献管理工具，主要聚焦于文献的收集、整理与引用格式管理，缺乏对文献内容的深层语义理解和智能分析能力，无法帮助用户快速提取研究要点或进行跨文献的知识关联。以ChatGPT为代表的通用大语言模型虽然具备强大的自然语言理解与生成能力，但由于其知识来源于预训练语料，无法直接处理用户的私有文献数据，且存在“幻觉”问题——即生成看似合理但实际不准确甚至虚构的内容，这在要求严谨引证的学术场景中是不可接受的。而Semantic Scholar等专业学术搜索引擎虽然提供了部分智能化功能，但功能相对分散，缺乏对用户上传文献的深度整合分析能力。",
+    "检索增强生成（Retrieval-Augmented Generation, RAG）技术的出现，为解决上述问题提供了一条切实可行的技术路径。RAG技术的核心思想是将信息检索与大语言模型的文本生成能力相结合：在回答用户问题之前，先从知识库中检索与问题相关的文档片段作为上下文证据，再将这些证据连同问题一起输入大语言模型进行推理和回答。这种“先检索、后生成”的范式从根本上缓解了大语言模型的幻觉问题，使生成的答案有据可查、可追溯到原文出处，非常适合对准确性和可信度要求极高的学术文献分析场景。近年来，随着向量检索技术和大语言模型能力的快速进步，RAG技术已经在问答系统、知识管理、智能客服等领域得到了广泛应用，并逐步向学术科研领域渗透。",
+    "本毕业设计旨在设计并实现一个基于RAG技术的智能文献分析大数据平台。该平台采用前后端分离架构，前端基于React与TypeScript构建现代化交互界面，后端基于FastAPI框架提供高性能异步API服务。在RAG引擎层面，平台采用BGE-M3多语言嵌入模型进行文本向量化，结合Milvus向量数据库与Elasticsearch全文检索引擎，实现BM25稀疏检索与Dense稠密检索的混合检索策略，并通过倒数排名融合（Reciprocal Rank Fusion, RRF）算法对多路检索结果进行联合排序，以提升检索的召回率和精准度。在文档处理层面，平台集成MinerU等先进的PDF解析工具，支持对双栏排版、数学公式、复杂表格等学术论文常见版式的智能识别与结构化提取。在智能体层面，平台设计了基于LangChain的多Agent协作编排框架，支持检索Agent、分析Agent、写作Agent和搜索Agent的动态任务路由与协同工作，以应对复杂的多维度文献分析任务。此外，平台还集成了知识图谱可视化、文献趋势分析、写作辅助等增值功能，形成了一个面向科研人员的一站式智能分析工具。",
+    "本课题的研究对于智能制造工程专业的学生具有重要的综合工程训练价值。项目涉及全栈Web开发、人工智能算法集成、大数据存储与检索、分布式系统部署等多个技术领域，要求综合运用软件工程、机器学习、自然语言处理、数据库技术等多学科知识进行系统性的工程实践，充分体现了学科交叉融合的创新特色。通过本项目的设计与实现，能够深入理解和实践当前业界前沿的RAG技术体系，掌握从需求分析、架构设计到工程落地的完整开发流程，有效培养分析和解决复杂工程问题的综合能力。同时，该平台具有显著的实际应用价值——它能够大幅提升科研人员的文献阅读和分析效率，辅助文献综述的撰写工作，支持多人协作的科研项目管理，为高校师生和科研工作者提供一个智能化、系统化的学术研究辅助平台。"
+  ],
+  "section_2": [
+    "（1）进行广泛的文献调研和资料分析，重点调研检索增强生成（RAG）技术、大语言模型、向量数据库与混合检索、PDF智能解析、知识图谱构建等领域的国内外研究现状和发展趋势，完成开题报告和外文文献翻译工作，并对LangChain、FastAPI、React等核心开发框架进行学习和技术预研；",
+    "（2）完成系统总体架构设计，包括前后端分离架构设计（React + TypeScript前端 与 FastAPI后端）、多存储互补方案设计（PostgreSQL关系数据库 + MongoDB文档数据库 + Milvus向量数据库 + Elasticsearch全文检索引擎 + Redis缓存）、RAG引擎数据流程设计、数据库E-R图设计及RESTful API接口规范设计，绘制系统架构图和模块交互关系图；",
+    "（3）设计并实现RAG核心引擎，主要包括：基于MinerU与PDFPlumber的PDF文档解析与结构化提取模块，语义分块与父子文档层级索引构建模块，基于BGE-M3模型的多语言文本向量化模块，BM25稀疏检索与Dense稠密检索的混合检索及RRF融合排序模块，重排序模型集成模块，以及基于大语言模型的流式答案生成与引用溯源机制；",
+    "（4）完成平台各功能模块的开发与系统集成，主要包括：用户认证与权限管理模块、科研项目管理模块、文献上传与智能解析管理模块、基于RAG的智能问答对话模块（支持流式输出与引用定位）、基于G6和Three.js的知识图谱可视化模块、文献趋势分析与热点识别模块、AI写作辅助模块，以及基于LangChain的多Agent协作编排模块；",
+    "（5）建立系统评测基线和自动化评测框架，对PDF解析质量、检索召回率（Recall@K）、答案准确率、引用溯源准确率、系统响应时间等核心指标进行量化评测和多维度对比分析，并根据评测结果对解析链路、检索策略和生成质量进行针对性的迭代优化；",
+    "（6）将系统的设计方案、关键技术实现细节、测试评估结果和性能分析按照学校规定的格式要求整理成毕业设计论文，并完成论文修改与答辩准备工作。"
+  ],
+  "section_3": [
+    "1. \tLewis, P., Perez, E., Piktus, A., et al. Retrieval-augmented generation for knowledge-intensive NLP tasks[C]//Advances in Neural Information Processing Systems, 2020, 33: 9459-9474.",
+    "2. \tGao, Y., Xiong, Y., Diber, A., et al. Retrieval-augmented generation for large language models: A survey[J]. arXiv preprint arXiv:2312.10997, 2024.",
+    "3. \tVaswani, A., Shazeer, N., Parmar, N., et al. Attention is all you need[C]//Advances in Neural Information Processing Systems, 2017, 30: 5998-6008.",
+    "4. \tDevlin, J., Chang, M. W., Lee, K., et al. BERT: Pre-training of deep bidirectional transformers for language understanding[C]//Proceedings of the 2019 Conference of the North American Chapter of the Association for Computational Linguistics. 2019: 4171-4186.",
+    "5. \tBrown, T. B., Mann, B., Ryder, N., et al. Language models are few-shot learners[C]//Advances in Neural Information Processing Systems, 2020, 33: 1877-1901.",
+    "6. \tChen, J., Xiao, S., Zhang, P., et al. M3-Embedding: Multi-lingual, multi-functionality, multi-granularity text embeddings through self-knowledge distillation[C]//Findings of the Association for Computational Linguistics: ACL, 2024.",
+    "7. \tRobertson, S., Zaragoza, H. The probabilistic relevance framework: BM25 and beyond[J]. Foundations and Trends in Information Retrieval, 2009, 3(4): 333-389.",
+    "8. \tCormack, G. V., Clarke, C. L. A., Buettcher, S. Reciprocal rank fusion outperforms condorcet and individual rank learning methods[C]//Proceedings of the 32nd International ACM SIGIR Conference on Research and Development in Information Retrieval. 2009: 758-759.",
+    "9. \tKarpukhin, V., Oguz, B., Min, S., et al. Dense passage retrieval for open-domain question answering[C]//Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing. 2020: 6769-6781.",
+    "10. \tIzacard, G., Grave, E. Leveraging passage retrieval with generative models for open domain question answering[C]//Proceedings of the 16th Conference of the European Chapter of the Association for Computational Linguistics. 2021: 874-880.",
+    "11. \tHuang, Y., Lv, T., Cui, L., et al. LayoutLMv3: Pre-training for document AI with unified text and image masking[C]//Proceedings of the 30th ACM International Conference on Multimedia. 2022: 4083-4091.",
+    "12. \tWang, J., Yi, X., Guo, R., et al. Milvus: A purpose-built vector data management system[C]//Proceedings of the 2021 International Conference on Management of Data. 2021: 2614-2627.",
+    "13. \tJohnson, J., Douze, M., Jégou, H. Billion-scale similarity search with GPUs[J]. IEEE Transactions on Big Data, 2021, 7(3): 535-547.",
+    "14. \tEdge, D., Trinh, H., Cheng, N., et al. From local to global: A graph RAG approach to query-focused summarization[J]. arXiv preprint arXiv:2404.16130, 2024.",
+    "15. \tWu, Q., Bansal, G., Zhang, J., et al. AutoGen: Enabling next-gen LLM applications via multi-agent conversation[J]. arXiv preprint arXiv:2308.08155, 2023.",
+    "16. \tReimers, N., Gurevych, I. Sentence-BERT: Sentence embeddings using siamese BERT-networks[C]//Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing. 2019: 3982-3992.",
+    "17. \tXu, Y., Li, M., Cui, L., et al. LayoutLM: Pre-training of text and layout for document image understanding[C]//Proceedings of the 26th ACM SIGKDD International Conference on Knowledge Discovery and Data Mining. 2020: 1192-1200.",
+    "18. \t赵鑫, 范意兴, 刘淇, 等. 大语言模型[M]. 北京: 电子工业出版社, 2025.",
+    "19. \t张民, 王子牛, 姚清晨, 等. 自然语言处理中的检索增强生成技术: 综述[J]. 中文信息学报, 2024, 38(5): 1-17.",
+    "20. \tChase, H. LangChain: Building applications with LLMs through composability[EB/OL]. https://github.com/langchain-ai/langchain, 2022."
+  ],
+  "section_4": [
+    "2026.2.24-2026.3.9\t   查阅国内外文献，重点调研RAG技术、向量检索与大语言模型等领域的研究现状，了解课题背景和研究意义，完成开题报告及外文文献翻译工作；",
+    "2026.3.10-2026.3.23\t   完成系统总体架构设计与技术选型，搭建前后端开发框架及Docker容器化部署环境，设计数据库结构与API接口规范，建立评测基线框架；",
+    "2026.3.24-2026.4.6\t   开发PDF文档解析模块（集成MinerU与PDFPlumber），实现语义分块与父子文档索引构建，完成BGE-M3向量化流程与Milvus存储集成；",
+    "2026.4.7-2026.4.20\t   实现BM25与Dense混合检索及RRF融合排序，集成重排序模型，开发RAG智能问答模块（含流式输出与引用溯源），同步推进前端核心页面开发；",
+    "2026.4.21-2026.5.4\t   开发多Agent协作编排模块与动态任务路由机制，完成知识图谱可视化、文献趋势分析与写作辅助等功能模块的开发与集成；",
+    "2026.5.5-2026.5.11\t   准备中期检查资料，整理阶段性成果，进行中期汇报；",
+    "2026.5.12-2026.5.25\t   完成GraphRAG知识图谱检索融合，实现技能扩展机制，进行全平台功能联调与集成测试；",
+    "2026.5.26-2026.6.8\t   执行系统性能测试与评测对比（解析质量、检索召回率、答案准确率等指标），根据评测结果进行针对性优化迭代；",
+    "2026.6.9-2026.6.22\t   撰写毕业设计论文，整理设计方案、实现细节与测试结果，完成论文修改；",
+    "2026.6.23-2026.6.30\t   准备毕业答辩相关资料及答辩PPT，进行毕业答辩。"
+  ]
+}

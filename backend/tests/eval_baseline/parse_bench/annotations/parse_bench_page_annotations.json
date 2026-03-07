@@ -1,0 +1,742 @@
+{
+  "version": "1.0",
+  "created_at": "2026-03-04",
+  "description": "ParseBench 页面级抽检标注（每篇 2-3 页）",
+  "items": [
+    {
+      "id": "PB-001",
+      "pdf_relative_path": "test_doc/Gao 等 - 2024 - Retrieval-Augmented Generation for Large Language Models A Survey.pdf",
+      "category": "dual_column",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "authors",
+            "abstract",
+            "dual_column_layout"
+          ],
+          "text_excerpt": "1 Retrieval-Augmented Generation for Large Language Models: A Survey Yunfan Gaoa , Yun Xiongb , Xinyu Gaob , Kangxiang Jiab , Jinliu Panb , Yuxi Bic , Yi Daia ,",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 10,
+          "labels": [
+            "dual_column_body",
+            "section_heading",
+            "figure_or_table"
+          ],
+          "text_excerpt": "10 introduces an innovative method for integrating knowledge into white-box models via directive fine-tuning [75]. In this approach, the retriever module is dir",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 21,
+          "labels": [
+            "references_or_appendix",
+            "two_column_continuity"
+          ],
+          "text_excerpt": "21 [181] A. Yang, A. Nagrani, P. H. Seo, A. Miech, J. Pont-Tuset, I. Laptev, J. Sivic, and C. Schmid, “Vid2seq: Large-scale pretraining of a visual language mod",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-002",
+      "pdf_relative_path": "test_doc/Fan 等 - 2024 - A Survey on RAG Meeting LLMs Towards Retrieval-Augmented Large Language Models.pdf",
+      "category": "dual_column",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "authors",
+            "abstract",
+            "dual_column_layout"
+          ],
+          "text_excerpt": "arXiv:2405.06211v3 [cs.CL] 17 Jun 2024 A Survey on RAG Meeting LLMs: Towards Retrieval-Augmented Large Language Models Wenqi Fan Yujuan Ding∗ Liangbo Ning wenqi",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 9,
+          "labels": [
+            "dual_column_body",
+            "section_heading",
+            "figure_or_table"
+          ],
+          "text_excerpt": "A Survey on RAG Meeting LLMs: Towards Retrieval-Augmented Large Language Models 3.4 Retrieval Augmentation Necessity and Frequency Conference’17, July 2017, Was",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 18,
+          "labels": [
+            "references_or_appendix",
+            "two_column_continuity"
+          ],
+          "text_excerpt": "Conference’17, July 2017, Washington, DC, USA Wenqi Fan, Yujuan Ding, Liangbo Ning, Shijie Wang, Hengyun Li, Dawei Yin, Tat-Seng Chua, and Qing Li Linguistics (",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-003",
+      "pdf_relative_path": "test_doc/Gupta 等 - 2024 - A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Fut.pdf",
+      "category": "single_column",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "abstract",
+            "single_column_layout"
+          ],
+          "text_excerpt": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG): Evolution, Current Landscape and Future Directions Shailja Gupta (Carnegie Mellon University, US",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 9,
+          "labels": [
+            "single_column_body",
+            "section_heading"
+          ],
+          "text_excerpt": "4. Recent Advancement in the field: There has been significant advancement in this field and this section intends to capture key findings of a few important rec",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 18,
+          "labels": [
+            "conclusion_or_references"
+          ],
+          "text_excerpt": "Yasunaga, M., Aghajanyan, A., Shi, W., James, R., Leskovec, J., Liang, P., Lewis, M., Zettlemoyer, L., & Yih, W. (2022). Retrieval-Augmented Multimodal Language",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-004",
+      "pdf_relative_path": "test_doc/Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strateg.pdf",
+      "category": "table_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "dense_table",
+            "header_row",
+            "numeric_cells"
+          ],
+          "text_excerpt": "information Perspective Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strategy Giorgia Tempestini, Sara Merà, Mar",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 9,
+          "labels": [
+            "dense_table",
+            "multi_column_table",
+            "row_alignment"
+          ],
+          "text_excerpt": "Information 2024, 15, 607 9 of 19 a spaceship, choosing an astronaut avatar and advancing by correctly answering quizzes and completing mini-games on online sec",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 19,
+          "labels": [
+            "dense_table",
+            "cross_page_table_or_footer"
+          ],
+          "text_excerpt": "Information 2024, 15, 607 38. 39. 40. 41. 42. 43. 44. 45. 46. 47. 48. 49. 50. 51. 52. 53. 54. 55. 56. 57. 58. 59. 60. 61. 19 of 19 Utz, C.; Degeling, M.; Fahl, ",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-005",
+      "pdf_relative_path": "test_doc/dual_column/He_2016_Deep_Residual_Learning_CVPR.pdf",
+      "category": "dual_column",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "authors",
+            "abstract",
+            "dual_column_layout"
+          ],
+          "text_excerpt": "Deep Residual Learning for Image Recognition Kaiming He Xiangyu Zhang Shaoqing Ren Microsoft Research Jian Sun {kahe, v-xiangz, v-shren, jiansun}@microsoft.com ",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 4,
+          "labels": [
+            "dual_column_body",
+            "section_heading",
+            "figure_or_table"
+          ],
+          "text_excerpt": "output size: 224 VGG-19 34-layer plain 34-layer residual image image image 3x3 conv, 128 7x7 conv, 64, /2 7x7 conv, 64, /2 pool, /2 pool, /2 pool, /2 3x3 conv, ",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 9,
+          "labels": [
+            "references_or_appendix",
+            "two_column_continuity"
+          ],
+          "text_excerpt": "References [1] Y. Bengio, P. Simard, and P. Frasconi. Learning long-term dependencies with gradient descent is difﬁcult. IEEE Transactions on Neural Networks, 5",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-006",
+      "pdf_relative_path": "test_doc/dual_column/Huang_2017_DenseNet_CVPR.pdf",
+      "category": "dual_column",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "authors",
+            "abstract",
+            "dual_column_layout"
+          ],
+          "text_excerpt": "Densely Connected Convolutional Networks Gao Huang∗ Cornell University Zhuang Liu∗ Tsinghua University Laurens van der Maaten Facebook AI Research gh349@cornell",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 4,
+          "labels": [
+            "dual_column_body",
+            "section_heading",
+            "figure_or_table"
+          ],
+          "text_excerpt": "Layers Convolution Pooling Dense Block (1) Transition Layer (1) Dense Block (2) Transition Layer (2) Dense Block (3) Transition Layer (3) Dense Block (4) Classi",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 9,
+          "labels": [
+            "references_or_appendix",
+            "two_column_continuity"
+          ],
+          "text_excerpt": "References [1] C. Cortes, X. Gonzalvo, V. Kuznetsov, M. Mohri, and S. Yang. Adanet: Adaptive structural learning of artificial neural networks. arXiv preprint a",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-007",
+      "pdf_relative_path": "test_doc/dual_column/Xie_2017_ResNeXt_CVPR.pdf",
+      "category": "dual_column",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "authors",
+            "abstract",
+            "dual_column_layout"
+          ],
+          "text_excerpt": "Aggregated Residual Transformations for Deep Neural Networks Saining Xie1 Ross Girshick2 Piotr Dollár2 Zhuowen Tu1 1 2 UC San Diego Facebook AI Research {s9xie",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 4,
+          "labels": [
+            "dual_column_body",
+            "section_heading",
+            "figure_or_table"
+          ],
+          "text_excerpt": "equivalent 256-d in 256-d in 256, 1x1, 4 4, 3x3, 4 4, 1x1, 256 256, 1x1, 4 total 32 paths .... 4, 3x3, 4 4, 1x1, 256 256, 1x1, 4 256, 1x1, 4 256-d in 256, 1x1, ",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 9,
+          "labels": [
+            "references_or_appendix",
+            "two_column_continuity"
+          ],
+          "text_excerpt": "References [1] S. Bell, C. L. Zitnick, K. Bala, and R. Girshick. Insideoutside net: Detecting objects in context with skip pooling and recurrent neural networks",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-008",
+      "pdf_relative_path": "test_doc/formula_heavy/Vaswani_2017_Attention_Is_All_You_Need.pdf",
+      "category": "formula_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "abstract",
+            "equation_tokens"
+          ],
+          "text_excerpt": "Provided proper attribution is provided, Google hereby grants permission to reproduce the tables and figures in this paper solely for use in journalistic or sch",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 7,
+          "labels": [
+            "equation_blocks",
+            "math_symbols",
+            "proof_or_derivation"
+          ],
+          "text_excerpt": "length n is smaller than the representation dimensionality d, which is most often the case with sentence representations used by state-of-the-art models in mach",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 15,
+          "labels": [
+            "equation_or_results",
+            "references"
+          ],
+          "text_excerpt": "15 is what we are we are <EOS> <pad> <EOS> <pad> in my opinion . my opinion . , in missing , this this is what <pad> <EOS> my opinion . , in missing we are this",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-009",
+      "pdf_relative_path": "test_doc/formula_heavy/Devlin_2018_BERT.pdf",
+      "category": "formula_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "abstract",
+            "equation_tokens"
+          ],
+          "text_excerpt": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding Jacob Devlin Ming-Wei Chang Kenton Lee Kristina Toutanova Google AI Language {j",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 8,
+          "labels": [
+            "equation_blocks",
+            "math_symbols",
+            "proof_or_derivation"
+          ],
+          "text_excerpt": "Dev Set MNLI-m QNLI MRPC SST-2 SQuAD (Acc) (Acc) (Acc) (Acc) (F1) Tasks BERTBASE No NSP LTR & No NSP + BiLSTM 84.4 83.9 82.1 82.1 88.4 84.9 84.3 84.1 86.7 86.5 ",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 16,
+          "labels": [
+            "equation_or_results",
+            "references"
+          ],
+          "text_excerpt": "jority class. C Additional Ablation Studies C.1 Effect of Number of Training Steps Figure 5 presents MNLI Dev accuracy after finetuning from a checkpoint that h",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-010",
+      "pdf_relative_path": "test_doc/formula_heavy/Kingma_2013_Auto-Encoding_Variational_Bayes.pdf",
+      "category": "formula_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "abstract",
+            "equation_tokens"
+          ],
+          "text_excerpt": "arXiv:1312.6114v11 [stat.ML] 10 Dec 2022 Auto-Encoding Variational Bayes Max Welling Machine Learning Group Universiteit van Amsterdam welling.max@gmail.com Die",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 7,
+          "labels": [
+            "equation_blocks",
+            "math_symbols",
+            "proof_or_derivation"
+          ],
+          "text_excerpt": "L 100 110 120 130 140 150 5 10 MNIST, Nz =3 106 107 100 110 120 130 140 150 5 10 108 # Training samples evaluated 106 107 108 100 110 120 130 140 150 5 10 MNIST",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 14,
+          "labels": [
+            "equation_or_results",
+            "references"
+          ],
+          "text_excerpt": "Algorithm 2 Pseudocode for computing a stochastic gradient using our estimator. See text for meaning of the functions fφ , gφ and hφ . Require: φ (Current value",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-011",
+      "pdf_relative_path": "test_doc/formula_heavy/Kingma_2014_Adam.pdf",
+      "category": "formula_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "abstract",
+            "equation_tokens"
+          ],
+          "text_excerpt": "Published as a conference paper at ICLR 2015 A DAM : A M ETHOD FOR S TOCHASTIC O PTIMIZATION Diederik P. Kingma* University of Amsterdam, OpenAI Jimmy Lei Ba∗ U",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 7,
+          "labels": [
+            "equation_blocks",
+            "math_symbols",
+            "proof_or_derivation"
+          ],
+          "text_excerpt": "Published as a conference paper at ICLR 2015 MNIST Multilayer Neural Network + dropout AdaGrad RMSProp SGDNesterov AdaDelta Adam training cost 10-1 10-2 0 50 10",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 15,
+          "labels": [
+            "equation_or_results",
+            "references"
+          ],
+          "text_excerpt": "Published as a conference paper at ICLR 2015 From the assumption, kθt − θ∗ k2 ≤ D, kθm − θn k∞ ≤ D∞ , we have: R(T ) ≤ ≤ d d d t 2 X Xp X X D2 D∞ α(1 + β1 )G∞ β",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-012",
+      "pdf_relative_path": "test_doc/formula_heavy/Ho_2020_DDPM.pdf",
+      "category": "formula_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "title_block",
+            "abstract",
+            "equation_tokens"
+          ],
+          "text_excerpt": "Denoising Diffusion Probabilistic Models arXiv:2006.11239v2 [cs.LG] 16 Dec 2020 Jonathan Ho UC Berkeley jonathanho@berkeley.edu Ajay Jain UC Berkeley ajayj@berk",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 12,
+          "labels": [
+            "equation_blocks",
+            "math_symbols",
+            "proof_or_derivation"
+          ],
+          "text_excerpt": "[51] Tim Salimans, Ian Goodfellow, Wojciech Zaremba, Vicki Cheung, Alec Radford, and Xi Chen. Improved techniques for training gans. In Advances in Neural Infor",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 25,
+          "labels": [
+            "equation_or_results",
+            "references"
+          ],
+          "text_excerpt": "Figure 19: LSUN Cat generated samples. FID=19.75 25",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-013",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_3small.pdf",
+      "category": "scan",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "scanned_page",
+            "image_dominant",
+            "ocr_noise_expected"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        },
+        {
+          "page": 2,
+          "labels": [
+            "scanned_page",
+            "rotation_or_skew_risk",
+            "layout_blocks"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        },
+        {
+          "page": 3,
+          "labels": [
+            "scanned_page",
+            "low_text_confidence",
+            "non_uniform_background"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        }
+      ]
+    },
+    {
+      "id": "PB-014",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_cardinal.pdf",
+      "category": "scan",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "scanned_page",
+            "image_dominant",
+            "ocr_noise_expected"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        },
+        {
+          "page": 2,
+          "labels": [
+            "scanned_page",
+            "rotation_or_skew_risk",
+            "layout_blocks"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        },
+        {
+          "page": 4,
+          "labels": [
+            "scanned_page",
+            "low_text_confidence",
+            "non_uniform_background"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        }
+      ]
+    },
+    {
+      "id": "PB-015",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_multipage.pdf",
+      "category": "scan",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "scanned_page",
+            "image_dominant",
+            "ocr_noise_expected"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        },
+        {
+          "page": 3,
+          "labels": [
+            "scanned_page",
+            "rotation_or_skew_risk",
+            "layout_blocks"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        },
+        {
+          "page": 6,
+          "labels": [
+            "scanned_page",
+            "low_text_confidence",
+            "non_uniform_background"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        }
+      ]
+    },
+    {
+      "id": "PB-016",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_tagged.pdf",
+      "category": "scan",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "scanned_page",
+            "image_dominant",
+            "ocr_noise_expected"
+          ],
+          "text_excerpt": "Table of Contents Heading.......................................................................................................................................",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 2,
+          "labels": [
+            "scanned_page",
+            "rotation_or_skew_risk",
+            "layout_blocks"
+          ],
+          "text_excerpt": "Page 2 Heading Body text.",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-017",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_toc.pdf",
+      "category": "scan",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "scanned_page",
+            "image_dominant",
+            "ocr_noise_expected"
+          ],
+          "text_excerpt": "What follows is an image embedded as a Form XObject:",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 2,
+          "labels": [
+            "scanned_page",
+            "rotation_or_skew_risk",
+            "layout_blocks"
+          ],
+          "text_excerpt": "",
+          "annotation_note": "页面可见文本为空或极短，按扫描件图像结构标注。"
+        }
+      ]
+    },
+    {
+      "id": "PB-018",
+      "pdf_relative_path": "test_doc/table_heavy/Camelot_diesel_engines.pdf",
+      "category": "table_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "dense_table",
+            "header_row",
+            "numeric_cells"
+          ],
+          "text_excerpt": "Pt C, Ch 1, Sec 2 SECTION 2 1 DIESEL ENGINES General 1.1 Application 1.1.1 Diesel engines listed below are to be designed, constructed, installed, tested and ce",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 11,
+          "labels": [
+            "dense_table",
+            "multi_column_table",
+            "row_alignment"
+          ],
+          "text_excerpt": "Pt C, Ch 1, Sec 2 Table 4 : Monitoring of main propulsion cross-head (slow speed) diesel engines Symbol convention H = High, HH = High high, L = Low, LL = Low l",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 23,
+          "labels": [
+            "dense_table",
+            "cross_page_table_or_footer"
+          ],
+          "text_excerpt": "Pt C, Ch 1, Sec 2 For those cases when a licensor – licensee agreement does NOT apply, an “engine designer” shall be understood as the entity that has the desig",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-019",
+      "pdf_relative_path": "test_doc/table_heavy/Camelot_vertical_header.pdf",
+      "category": "table_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "dense_table",
+            "header_row",
+            "numeric_cells"
+          ],
+          "text_excerpt": "PRIMARY ELECTION, AUGUST 7, 2018 REPUBLICIAN PARTY Bill Schuette John James Sandy Pensler Jack Bergman Jim Stamas Sue Allor Melissa A. Cordes Al Scully Daniel G",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 3,
+          "labels": [
+            "dense_table",
+            "multi_column_table",
+            "row_alignment"
+          ],
+          "text_excerpt": "PRIMARY ELECTION, AUGUST 7, 2018 LIBERTARIAN PARTY STATE CONGRESSIONAL Bill Gelineau John J. Tatar Governor Alcona 0 0 Caledonia 0 0 Curtis 0 0 Greenbush 3 0 Gu",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 5,
+          "labels": [
+            "dense_table",
+            "cross_page_table_or_footer"
+          ],
+          "text_excerpt": "ALCONA TOWNSHIP # of Votes Proposal Proposal Road Millage Renewal Fire Millage Renewal Yes 337 367 No 84 57 295 75 205 117 283 345 117 56 189 88 122 60 81 48 CA",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-020",
+      "pdf_relative_path": "test_doc/table_heavy/Camelot_birdisland.pdf",
+      "category": "table_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "dense_table",
+            "header_row",
+            "numeric_cells"
+          ],
+          "text_excerpt": "ALL SEASON TEST 2012 BETTER VARIETIES Harvest Report for Minnesota Central [ MNCE ] Doug Toreen, Renville County, MN 55310 [ BIRD ISLAND ] PREV. CROP/HERB: SOIL",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 2,
+          "labels": [
+            "dense_table",
+            "multi_column_table",
+            "row_alignment"
+          ],
+          "text_excerpt": "Footnotes, Abbreviations, and Trademarks Brand Footnotes ^ G2® brand seed is distributed by NuTech Seed, LLC. HPT® brand seed is distributed by Hoegemeyer Hybri",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    },
+    {
+      "id": "PB-021",
+      "pdf_relative_path": "test_doc/table_heavy/PDFPlumber_ca_warn_report.pdf",
+      "category": "table_heavy",
+      "sampled_pages": [
+        {
+          "page": 1,
+          "labels": [
+            "dense_table",
+            "header_row",
+            "numeric_cells"
+          ],
+          "text_excerpt": "WARN Report* Summary by Received Date 07/01/2015 - 03/25/2016 Fiscal Year *Publication Note: This bi-weekly report is updated on the 10th and 25th of each month",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 8,
+          "labels": [
+            "dense_table",
+            "multi_column_table",
+            "row_alignment"
+          ],
+          "text_excerpt": "10/30/2015 10/30/2015 10/30/2015 11/04/2015 11/06/2015 10/30/2015 11/04/2015 11/04/2015 11/05/2015 11/07/2015 11/09/2015 11/09/2015 11/10/2015 11/12/2015 11/09/",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        },
+        {
+          "page": 16,
+          "labels": [
+            "dense_table",
+            "cross_page_table_or_footer"
+          ],
+          "text_excerpt": "September 2015 October 2015 November 2015 December 2015 January 2016 February 2016 March 2016 Total 76 71 41 69 85 92 58 632 4,864 6,102 2,940 8,729 6,617 6,899",
+          "annotation_note": "抽检页用于版面/结构解析核验。"
+        }
+      ]
+    }
+  ]
+}

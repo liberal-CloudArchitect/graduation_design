@@ -1,0 +1,676 @@
+{
+  "version": "1.1",
+  "description": "ParseBench - PDF 解析质量评测集（扩充版）",
+  "created_at": "2026-03-04",
+  "note": "已扩充至 21 篇；四种目标类型（双栏/公式密集/扫描件/表格密集）均达到 >= 5。每篇均提供 2-3 页抽检标注。",
+  "categories": {
+    "dual_column": "双栏论文（ACM/IEEE 格式）",
+    "formula_heavy": "公式密集（数学/ML 论文）",
+    "scan": "扫描件",
+    "table_heavy": "表格密集",
+    "single_column": "单栏论文"
+  },
+  "category_counts": {
+    "dual_column": 5,
+    "single_column": 1,
+    "table_heavy": 5,
+    "formula_heavy": 5,
+    "scan": 5
+  },
+  "items": [
+    {
+      "id": "PB-001",
+      "pdf_filename": "Gao 等 - 2024 - Retrieval-Augmented Generation for Large Language Models A Survey.pdf",
+      "pdf_relative_path": "test_doc/Gao 等 - 2024 - Retrieval-Augmented Generation for Large Language Models A Survey.pdf",
+      "category": "dual_column",
+      "language": "en",
+      "source_url": "local_existing",
+      "expected": {
+        "title": "Retrieval-Augmented Generation for Large Language Models: A Survey",
+        "authors_count_approx": 4,
+        "has_abstract": true,
+        "abstract_min_length": 100,
+        "section_count_approx": 8,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": true,
+        "page_count_approx": 21,
+        "sample_pages": [
+          1,
+          10,
+          21
+        ],
+        "known_sections": [
+          "Introduction",
+          "Background",
+          "RAG Foundations",
+          "Advanced RAG",
+          "Modular RAG",
+          "Discussion",
+          "Conclusion"
+        ],
+        "notes": "双栏综述论文，含大量图表与引用。"
+      }
+    },
+    {
+      "id": "PB-002",
+      "pdf_filename": "Fan 等 - 2024 - A Survey on RAG Meeting LLMs Towards Retrieval-Augmented Large Language Models.pdf",
+      "pdf_relative_path": "test_doc/Fan 等 - 2024 - A Survey on RAG Meeting LLMs Towards Retrieval-Augmented Large Language Models.pdf",
+      "category": "dual_column",
+      "language": "en",
+      "source_url": "local_existing",
+      "expected": {
+        "title": "A Survey on RAG Meeting LLMs: Towards Retrieval-Augmented Large Language Models",
+        "authors_count_approx": 5,
+        "has_abstract": true,
+        "abstract_min_length": 100,
+        "section_count_approx": 7,
+        "has_tables": true,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 18,
+        "sample_pages": [
+          1,
+          9,
+          18
+        ],
+        "known_sections": [
+          "Introduction",
+          "Foundations",
+          "Retrieval-Augmented LLMs",
+          "Applications",
+          "Challenges"
+        ],
+        "notes": "双栏综述，含公式和复杂表格。"
+      }
+    },
+    {
+      "id": "PB-003",
+      "pdf_filename": "Gupta 等 - 2024 - A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Fut.pdf",
+      "pdf_relative_path": "test_doc/Gupta 等 - 2024 - A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Fut.pdf",
+      "category": "single_column",
+      "language": "en",
+      "source_url": "local_existing",
+      "expected": {
+        "title": "A Comprehensive Survey of Retrieval-Augmented Generation (RAG): Evolution, Current Landscape and Future Directions",
+        "authors_count_approx": 3,
+        "has_abstract": true,
+        "abstract_min_length": 80,
+        "section_count_approx": 6,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": true,
+        "page_count_approx": 18,
+        "sample_pages": [
+          1,
+          9,
+          18
+        ],
+        "known_sections": [
+          "Introduction",
+          "Background",
+          "RAG Evolution",
+          "Current Landscape",
+          "Future Directions",
+          "Conclusion"
+        ],
+        "notes": "单栏综述，作为对照样本保留。"
+      }
+    },
+    {
+      "id": "PB-004",
+      "pdf_filename": "Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strateg.pdf",
+      "pdf_relative_path": "test_doc/Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strateg.pdf",
+      "category": "table_heavy",
+      "language": "en",
+      "source_url": "local_existing",
+      "expected": {
+        "title": "Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strategy",
+        "authors_count_approx": 3,
+        "has_abstract": true,
+        "abstract_min_length": 80,
+        "section_count_approx": 6,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": true,
+        "page_count_approx": 19,
+        "sample_pages": [
+          1,
+          9,
+          19
+        ],
+        "known_sections": [
+          "Introduction",
+          "Related Work",
+          "Methodology",
+          "Results",
+          "Discussion",
+          "Conclusion"
+        ],
+        "notes": "期刊论文，实验统计表较密集。"
+      }
+    },
+    {
+      "id": "PB-005",
+      "pdf_filename": "He_2016_Deep_Residual_Learning_CVPR.pdf",
+      "pdf_relative_path": "test_doc/dual_column/He_2016_Deep_Residual_Learning_CVPR.pdf",
+      "category": "dual_column",
+      "language": "en",
+      "source_url": "https://openaccess.thecvf.com/content_cvpr_2016/papers/He_Deep_Residual_Learning_CVPR_2016_paper.pdf",
+      "expected": {
+        "title": "Deep Residual Learning for Image Recognition",
+        "authors_count_approx": 4,
+        "has_abstract": true,
+        "abstract_min_length": 60,
+        "section_count_approx": 6,
+        "has_tables": true,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 9,
+        "sample_pages": [
+          1,
+          4,
+          9
+        ],
+        "known_sections": [
+          "Introduction",
+          "Related Work",
+          "Deep Residual Learning",
+          "Experiments",
+          "Conclusion"
+        ],
+        "notes": "CVPR 双栏论文，图表与公式并存。"
+      }
+    },
+    {
+      "id": "PB-006",
+      "pdf_filename": "Huang_2017_DenseNet_CVPR.pdf",
+      "pdf_relative_path": "test_doc/dual_column/Huang_2017_DenseNet_CVPR.pdf",
+      "category": "dual_column",
+      "language": "en",
+      "source_url": "https://openaccess.thecvf.com/content_cvpr_2017/papers/Huang_Densely_Connected_Convolutional_CVPR_2017_paper.pdf",
+      "expected": {
+        "title": "Densely Connected Convolutional Networks",
+        "authors_count_approx": 4,
+        "has_abstract": true,
+        "abstract_min_length": 60,
+        "section_count_approx": 6,
+        "has_tables": true,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 9,
+        "sample_pages": [
+          1,
+          4,
+          9
+        ],
+        "known_sections": [
+          "Introduction",
+          "Related Work",
+          "DenseNet Architectures",
+          "Experiments",
+          "Conclusion"
+        ],
+        "notes": "CVPR 双栏论文，典型 IEEE 风格版式。"
+      }
+    },
+    {
+      "id": "PB-007",
+      "pdf_filename": "Xie_2017_ResNeXt_CVPR.pdf",
+      "pdf_relative_path": "test_doc/dual_column/Xie_2017_ResNeXt_CVPR.pdf",
+      "category": "dual_column",
+      "language": "en",
+      "source_url": "https://openaccess.thecvf.com/content_cvpr_2017/papers/Xie_Aggregated_Residual_Transformations_CVPR_2017_paper.pdf",
+      "expected": {
+        "title": "Aggregated Residual Transformations for Deep Neural Networks",
+        "authors_count_approx": 6,
+        "has_abstract": true,
+        "abstract_min_length": 60,
+        "section_count_approx": 6,
+        "has_tables": true,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 9,
+        "sample_pages": [
+          1,
+          4,
+          9
+        ],
+        "known_sections": [
+          "Introduction",
+          "Related Work",
+          "Method",
+          "Experiments",
+          "Conclusion"
+        ],
+        "notes": "CVPR 双栏论文，含多组实验表格。"
+      }
+    },
+    {
+      "id": "PB-008",
+      "pdf_filename": "Vaswani_2017_Attention_Is_All_You_Need.pdf",
+      "pdf_relative_path": "test_doc/formula_heavy/Vaswani_2017_Attention_Is_All_You_Need.pdf",
+      "category": "formula_heavy",
+      "language": "en",
+      "source_url": "https://arxiv.org/pdf/1706.03762.pdf",
+      "expected": {
+        "title": "Attention Is All You Need",
+        "authors_count_approx": 8,
+        "has_abstract": true,
+        "abstract_min_length": 80,
+        "section_count_approx": 8,
+        "has_tables": true,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 15,
+        "sample_pages": [
+          1,
+          7,
+          15
+        ],
+        "known_sections": [
+          "Introduction",
+          "Background",
+          "Model Architecture",
+          "Training",
+          "Results",
+          "Conclusion"
+        ],
+        "notes": "经典 Transformer 论文，公式密集。"
+      }
+    },
+    {
+      "id": "PB-009",
+      "pdf_filename": "Devlin_2018_BERT.pdf",
+      "pdf_relative_path": "test_doc/formula_heavy/Devlin_2018_BERT.pdf",
+      "category": "formula_heavy",
+      "language": "en",
+      "source_url": "https://arxiv.org/pdf/1810.04805.pdf",
+      "expected": {
+        "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+        "authors_count_approx": 4,
+        "has_abstract": true,
+        "abstract_min_length": 80,
+        "section_count_approx": 7,
+        "has_tables": true,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 16,
+        "sample_pages": [
+          1,
+          8,
+          16
+        ],
+        "known_sections": [
+          "Introduction",
+          "Related Work",
+          "BERT",
+          "Experiments",
+          "Ablation Studies",
+          "Conclusion"
+        ],
+        "notes": "NLP 经典论文，预训练目标与推导公式明显。"
+      }
+    },
+    {
+      "id": "PB-010",
+      "pdf_filename": "Kingma_2013_Auto-Encoding_Variational_Bayes.pdf",
+      "pdf_relative_path": "test_doc/formula_heavy/Kingma_2013_Auto-Encoding_Variational_Bayes.pdf",
+      "category": "formula_heavy",
+      "language": "en",
+      "source_url": "https://arxiv.org/pdf/1312.6114.pdf",
+      "expected": {
+        "title": "Auto-Encoding Variational Bayes",
+        "authors_count_approx": 2,
+        "has_abstract": true,
+        "abstract_min_length": 80,
+        "section_count_approx": 6,
+        "has_tables": true,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 14,
+        "sample_pages": [
+          1,
+          7,
+          14
+        ],
+        "known_sections": [
+          "Introduction",
+          "Method",
+          "SGVB Estimator",
+          "Experiments",
+          "Conclusion"
+        ],
+        "notes": "变分推断论文，数学公式密集。"
+      }
+    },
+    {
+      "id": "PB-011",
+      "pdf_filename": "Kingma_2014_Adam.pdf",
+      "pdf_relative_path": "test_doc/formula_heavy/Kingma_2014_Adam.pdf",
+      "category": "formula_heavy",
+      "language": "en",
+      "source_url": "https://arxiv.org/pdf/1412.6980.pdf",
+      "expected": {
+        "title": "Adam: A Method for Stochastic Optimization",
+        "authors_count_approx": 2,
+        "has_abstract": true,
+        "abstract_min_length": 60,
+        "section_count_approx": 5,
+        "has_tables": false,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 15,
+        "sample_pages": [
+          1,
+          7,
+          15
+        ],
+        "known_sections": [
+          "Introduction",
+          "Algorithm",
+          "Convergence Analysis",
+          "Experiments",
+          "Conclusion"
+        ],
+        "notes": "优化算法论文，含大量递推公式。"
+      }
+    },
+    {
+      "id": "PB-012",
+      "pdf_filename": "Ho_2020_DDPM.pdf",
+      "pdf_relative_path": "test_doc/formula_heavy/Ho_2020_DDPM.pdf",
+      "category": "formula_heavy",
+      "language": "en",
+      "source_url": "https://arxiv.org/pdf/2006.11239.pdf",
+      "expected": {
+        "title": "Denoising Diffusion Probabilistic Models",
+        "authors_count_approx": 3,
+        "has_abstract": true,
+        "abstract_min_length": 80,
+        "section_count_approx": 7,
+        "has_tables": true,
+        "has_formulas": true,
+        "has_figures": true,
+        "page_count_approx": 25,
+        "sample_pages": [
+          1,
+          12,
+          25
+        ],
+        "known_sections": [
+          "Introduction",
+          "Background",
+          "Diffusion Models",
+          "Experiments",
+          "Discussion"
+        ],
+        "notes": "扩散模型论文，推导和符号定义较多。"
+      }
+    },
+    {
+      "id": "PB-013",
+      "pdf_filename": "OCRmyPDF_3small.pdf",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_3small.pdf",
+      "category": "scan",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/ocrmypdf/OCRmyPDF/main/tests/resources/3small.pdf",
+      "expected": {
+        "title": "OCRmyPDF 3small scan sample",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 0,
+        "has_tables": false,
+        "has_formulas": false,
+        "has_figures": true,
+        "page_count_approx": 3,
+        "sample_pages": [
+          1,
+          2,
+          3
+        ],
+        "known_sections": [],
+        "notes": "扫描件多页样本，图像为主。"
+      }
+    },
+    {
+      "id": "PB-014",
+      "pdf_filename": "OCRmyPDF_cardinal.pdf",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_cardinal.pdf",
+      "category": "scan",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/ocrmypdf/OCRmyPDF/main/tests/resources/cardinal.pdf",
+      "expected": {
+        "title": "OCRmyPDF cardinal scan sample",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 0,
+        "has_tables": false,
+        "has_formulas": false,
+        "has_figures": true,
+        "page_count_approx": 4,
+        "sample_pages": [
+          1,
+          2,
+          4
+        ],
+        "known_sections": [],
+        "notes": "扫描件（旋转/方向变化）样本。"
+      }
+    },
+    {
+      "id": "PB-015",
+      "pdf_filename": "OCRmyPDF_multipage.pdf",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_multipage.pdf",
+      "category": "scan",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/ocrmypdf/OCRmyPDF/main/tests/resources/multipage.pdf",
+      "expected": {
+        "title": "OCRmyPDF multipage scan sample",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 0,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": true,
+        "page_count_approx": 6,
+        "sample_pages": [
+          1,
+          3,
+          6
+        ],
+        "known_sections": [],
+        "notes": "扫描件多页组合，包含不同版式页面。"
+      }
+    },
+    {
+      "id": "PB-016",
+      "pdf_filename": "OCRmyPDF_tagged.pdf",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_tagged.pdf",
+      "category": "scan",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/ocrmypdf/OCRmyPDF/main/tests/resources/tagged.pdf",
+      "expected": {
+        "title": "Tagged PDF Demo",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 0,
+        "has_tables": false,
+        "has_formulas": false,
+        "has_figures": true,
+        "page_count_approx": 2,
+        "sample_pages": [
+          1,
+          2
+        ],
+        "known_sections": [],
+        "notes": "扫描/图像主导文档，用于 OCR 与结构恢复测试。"
+      }
+    },
+    {
+      "id": "PB-017",
+      "pdf_filename": "OCRmyPDF_toc.pdf",
+      "pdf_relative_path": "test_doc/scan/OCRmyPDF_toc.pdf",
+      "category": "scan",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/ocrmypdf/OCRmyPDF/main/tests/resources/toc.pdf",
+      "expected": {
+        "title": "OCRmyPDF toc scan sample",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 0,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": true,
+        "page_count_approx": 2,
+        "sample_pages": [
+          1,
+          2
+        ],
+        "known_sections": [],
+        "notes": "扫描件含目录结构，适合目录识别测试。"
+      }
+    },
+    {
+      "id": "PB-018",
+      "pdf_filename": "Camelot_diesel_engines.pdf",
+      "pdf_relative_path": "test_doc/table_heavy/Camelot_diesel_engines.pdf",
+      "category": "table_heavy",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/camelot-dev/camelot/master/tests/files/diesel_engines.pdf",
+      "expected": {
+        "title": "Diesel Engines table benchmark sample",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 2,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": false,
+        "page_count_approx": 23,
+        "sample_pages": [
+          1,
+          11,
+          23
+        ],
+        "known_sections": [
+          "Tabular Data"
+        ],
+        "notes": "表格密集长文档（23 页），用于表格抽取压力测试。"
+      }
+    },
+    {
+      "id": "PB-019",
+      "pdf_filename": "Camelot_vertical_header.pdf",
+      "pdf_relative_path": "test_doc/table_heavy/Camelot_vertical_header.pdf",
+      "category": "table_heavy",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/camelot-dev/camelot/master/tests/files/vertical_header.pdf",
+      "expected": {
+        "title": "Vertical Header table benchmark sample",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 1,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": false,
+        "page_count_approx": 5,
+        "sample_pages": [
+          1,
+          3,
+          5
+        ],
+        "known_sections": [
+          "Tabular Data"
+        ],
+        "notes": "含纵向表头的多页表格样本。"
+      }
+    },
+    {
+      "id": "PB-020",
+      "pdf_filename": "Camelot_birdisland.pdf",
+      "pdf_relative_path": "test_doc/table_heavy/Camelot_birdisland.pdf",
+      "category": "table_heavy",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/camelot-dev/camelot/master/tests/files/birdisland.pdf",
+      "expected": {
+        "title": "Bird Island table benchmark sample",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 1,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": false,
+        "page_count_approx": 2,
+        "sample_pages": [
+          1,
+          2
+        ],
+        "known_sections": [
+          "Tabular Data"
+        ],
+        "notes": "双页表格样本，含跨列字段。"
+      }
+    },
+    {
+      "id": "PB-021",
+      "pdf_filename": "PDFPlumber_ca_warn_report.pdf",
+      "pdf_relative_path": "test_doc/table_heavy/PDFPlumber_ca_warn_report.pdf",
+      "category": "table_heavy",
+      "language": "en",
+      "source_url": "https://raw.githubusercontent.com/jsvine/pdfplumber/stable/examples/pdfs/ca-warn-report.pdf",
+      "expected": {
+        "title": "California WARN Report",
+        "authors_count_approx": 0,
+        "has_abstract": false,
+        "abstract_min_length": 0,
+        "section_count_approx": 3,
+        "has_tables": true,
+        "has_formulas": false,
+        "has_figures": false,
+        "page_count_approx": 16,
+        "sample_pages": [
+          1,
+          8,
+          16
+        ],
+        "known_sections": [
+          "Layoff Events",
+          "Employer Information",
+          "Notice Dates"
+        ],
+        "notes": "16 页监管报表，连续结构化表格。"
+      }
+    }
+  ],
+  "pending_additions": {
+    "description": "当前目标类型已满足最小覆盖要求。",
+    "dual_column": {
+      "current": 5,
+      "target": 5,
+      "status": "done"
+    },
+    "formula_heavy": {
+      "current": 5,
+      "target": 5,
+      "status": "done"
+    },
+    "scan": {
+      "current": 5,
+      "target": 5,
+      "status": "done"
+    },
+    "table_heavy": {
+      "current": 5,
+      "target": 5,
+      "status": "done"
+    }
+  }
+}

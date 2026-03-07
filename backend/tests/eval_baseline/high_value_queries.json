@@ -1,0 +1,329 @@
+{
+  "version": "1.0",
+  "description": "高价值评测样本 — 按综合修改实施方案 11.3 节格式构建",
+  "created_at": "2026-03-03",
+  "note": "共 22 条样本，覆盖 5 类场景。paper_id 为运行时动态分配，此处用 paper_index key 作为稳定标识。",
+  "paper_index": {
+    "gao_2024": "Gao 等 - 2024 - Retrieval-Augmented Generation for Large Language Models A Survey.pdf",
+    "fan_2024": "Fan 等 - 2024 - A Survey on RAG Meeting LLMs Towards Retrieval-Augmented Large Language Models.pdf",
+    "gupta_2024": "Gupta 等 - 2024 - A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Fut.pdf",
+    "cyber_2024": "Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strateg.pdf"
+  },
+  "items": [
+    {
+      "id": "HV-001",
+      "category": "精确事实查询",
+      "question": "Gao 2024 综述中，Naive RAG 的三个核心阶段分别是什么？",
+      "related_papers": ["gao_2024"],
+      "expected_answer_points": [
+        "Indexing（索引）: 文档分块与向量化",
+        "Retrieval（检索）: 基于相似度的文档检索",
+        "Generation（生成）: 检索结果注入 LLM 生成回答"
+      ],
+      "difficulty": "easy",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-002",
+      "category": "精确事实查询",
+      "question": "What evaluation framework does Gao 2024 specifically mention for assessing RAG quality?",
+      "related_papers": ["gao_2024"],
+      "expected_answer_points": [
+        "RAGAS (Retrieval Augmented Generation Assessment)",
+        "Metrics include faithfulness, answer relevance, context relevance",
+        "Both automated and human evaluation discussed"
+      ],
+      "difficulty": "easy",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-003",
+      "category": "精确事实查询",
+      "question": "在网络安全论文中，CookieAware 游戏的实验结果中，实验组和对照组的表现差异是什么？",
+      "related_papers": ["cyber_2024"],
+      "expected_answer_points": [
+        "实验组在后测中分数显著提高",
+        "对照组无显著变化",
+        "统计显著性说明（p值或效应量）"
+      ],
+      "difficulty": "easy",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-004",
+      "category": "精确事实查询",
+      "question": "Fan 2024 中提到了哪些 RAG 在推理阶段的集成方式？",
+      "related_papers": ["fan_2024"],
+      "expected_answer_points": [
+        "Input augmentation (检索结果拼接到输入)",
+        "Output post-processing (基于检索结果后处理)",
+        "In-context learning with retrieval"
+      ],
+      "difficulty": "moderate",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-005",
+      "category": "精确事实查询",
+      "question": "Gupta 2024 如何定义 RAG 的演化阶段？",
+      "related_papers": ["gupta_2024"],
+      "expected_answer_points": [
+        "RAG 的历史演进阶段描述",
+        "从早期检索增强到现代 LLM 集成",
+        "当前景观的特征描述"
+      ],
+      "difficulty": "easy",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-006",
+      "category": "跨段落综合",
+      "question": "请完整总结 Gao 2024 中 Advanced RAG 的所有改进技术，按 pre-retrieval、retrieval、post-retrieval 三个阶段分类。",
+      "related_papers": ["gao_2024"],
+      "expected_answer_points": [
+        "Pre-retrieval: 查询优化（重写、扩展、HyDE）、索引优化（滑动窗口、层级索引）",
+        "Retrieval: 混合检索、多路召回、元数据过滤",
+        "Post-retrieval: 重排序（cross-encoder）、上下文压缩、相关性过滤",
+        "每个技术的简要说明"
+      ],
+      "difficulty": "moderate",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-007",
+      "category": "跨段落综合",
+      "question": "Describe the full methodology and findings of the cybersecurity education experiment, from participant recruitment to statistical analysis.",
+      "related_papers": ["cyber_2024"],
+      "expected_answer_points": [
+        "参与者招募和人口统计",
+        "实验设计（准实验、前测后测）",
+        "干预措施（CookieAware 游戏的具体内容）",
+        "数据收集和分析方法",
+        "关键统计结果",
+        "研究局限性讨论"
+      ],
+      "difficulty": "moderate",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-008",
+      "category": "跨段落综合",
+      "question": "请总结 Fan 2024 中关于 RAG 在预训练、微调和推理三个阶段的不同集成方式。",
+      "related_papers": ["fan_2024"],
+      "expected_answer_points": [
+        "预训练阶段：RETRO 等检索增强预训练方法",
+        "微调阶段：检索增强微调策略",
+        "推理阶段：输入拼接、迭代检索",
+        "各阶段优缺点对比"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-009",
+      "category": "跨段落综合",
+      "question": "Summarize all the index optimization techniques discussed in Gao 2024, including chunk strategies and metadata enhancement.",
+      "related_papers": ["gao_2024"],
+      "expected_answer_points": [
+        "Chunk 策略：大小选择、重叠设置",
+        "滑动窗口方法",
+        "层级索引（句子级 + 段落级）",
+        "元数据增强索引",
+        "图索引"
+      ],
+      "difficulty": "moderate",
+      "eval_focus": ["coverage"]
+    },
+    {
+      "id": "HV-010",
+      "category": "跨段落综合",
+      "question": "请从 Gao 2024 中完整描述 Modular RAG 的架构设计，包括所有核心模块和它们的交互方式。",
+      "related_papers": ["gao_2024"],
+      "expected_answer_points": [
+        "模块化架构的设计哲学",
+        "核心模块列表和各自职责",
+        "模块间的组合方式",
+        "典型的模块组合实例",
+        "与 Naive/Advanced RAG 的关系"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-011",
+      "category": "跨文献对比",
+      "question": "Compare the RAG taxonomy frameworks from Gao 2024 (Naive/Advanced/Modular), Fan 2024, and Gupta 2024. What are the key similarities and differences?",
+      "related_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "expected_answer_points": [
+        "Gao: 三阶段演化分类（Naive → Advanced → Modular）",
+        "Fan: 按 LLM 训练阶段分类（预训练/微调/推理）",
+        "Gupta: 按演化时间线分类",
+        "共同点：都认识到 RAG 从简单到复杂的演化",
+        "差异：分类维度不同（技术成熟度 vs 训练阶段 vs 时间线）"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-012",
+      "category": "跨文献对比",
+      "question": "Which retrieval enhancement techniques are discussed in both Gao 2024 and Fan 2024? Where do their recommendations diverge?",
+      "related_papers": ["gao_2024", "fan_2024"],
+      "expected_answer_points": [
+        "共同讨论的技术：dense retrieval、hybrid search、reranking",
+        "Gao 更侧重模块化组合",
+        "Fan 更侧重与 LLM 训练阶段的集成",
+        "推荐差异点"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-013",
+      "category": "跨文献对比",
+      "question": "哪些论文改进了或讨论了 Transformer 架构在检索增强场景中的应用？请综合三篇 RAG 综述回答。",
+      "related_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "expected_answer_points": [
+        "检索增强的 Transformer 预训练（如 RETRO）",
+        "Cross-attention 机制在检索结果集成中的作用",
+        "编码器-解码器架构的检索增强变体",
+        "各综述的具体讨论差异"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-014",
+      "category": "跨文献对比",
+      "question": "Compare the evaluation perspectives across all three RAG surveys. What metrics do they agree and disagree on?",
+      "related_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "expected_answer_points": [
+        "共同认可的指标：faithfulness、relevance",
+        "Gao 提到的 RAGAS 框架",
+        "各综述对评估方法论的不同强调",
+        "共同的评估挑战：缺乏标准化基准",
+        "对人工评估角色的不同看法"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-015",
+      "category": "跨文献对比",
+      "question": "How do the three RAG surveys differently address the problem of noisy or irrelevant retrieved documents?",
+      "related_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "expected_answer_points": [
+        "Gao: post-retrieval 处理（重排序、压缩）",
+        "Fan: retrieval quality filtering 方法",
+        "Gupta: 相关讨论",
+        "共同认识：噪声是 RAG 的核心挑战",
+        "各自提出的缓解策略"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-016",
+      "category": "综述归纳",
+      "question": "当前 RAG 领域有哪些主流技术路线？请综合三篇 RAG 综述给出系统性归纳。",
+      "related_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "expected_answer_points": [
+        "路线一：稀疏+稠密混合检索",
+        "路线二：查询优化与自适应检索",
+        "路线三：检索增强预训练/微调",
+        "路线四：模块化 RAG 框架",
+        "路线五：多模态 RAG",
+        "各路线的代表方法和应用场景"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-017",
+      "category": "综述归纳",
+      "question": "请归纳这三篇 RAG 综述论文的共同局限性和研究空白。",
+      "related_papers": ["gao_2024", "fan_2024", "gupta_2024"],
+      "expected_answer_points": [
+        "评估标准不统一",
+        "长文档处理挑战",
+        "多模态场景覆盖不足",
+        "实际部署经验分享有限",
+        "知识更新和时效性问题",
+        "各综述自身的覆盖范围局限"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage"]
+    },
+    {
+      "id": "HV-018",
+      "category": "综述归纳",
+      "question": "Based on all project papers, what are the most promising research directions for the next 2-3 years in RAG and educational technology?",
+      "related_papers": ["gao_2024", "fan_2024", "gupta_2024", "cyber_2024"],
+      "expected_answer_points": [
+        "RAG: Agent-RAG 融合",
+        "RAG: 多模态检索增强",
+        "RAG: 更好的评估方法",
+        "教育技术: 个性化学习体验",
+        "交叉领域: AI 辅助教育的新可能",
+        "有论文依据支撑"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-019",
+      "category": "边界挑战",
+      "question": "If there are any mathematical formulas in the Fan 2024 survey (e.g., retrieval scoring functions), what do they represent?",
+      "related_papers": ["fan_2024"],
+      "expected_answer_points": [
+        "识别并描述公式内容（如检索评分函数）",
+        "公式的数学含义解释",
+        "如果无公式则明确说明"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["parse_quality", "coverage"]
+    },
+    {
+      "id": "HV-020",
+      "category": "边界挑战",
+      "question": "请列出网络安全论文中所有数据表格的内容概要，并说明哪个表格中的数据最能支持作者的核心结论。",
+      "related_papers": ["cyber_2024"],
+      "expected_answer_points": [
+        "列出论文中的主要数据表格",
+        "每个表格的内容概要",
+        "指出最关键的表格",
+        "解释该表格如何支持核心结论"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["parse_quality", "coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-021",
+      "category": "精确事实查询",
+      "question": "What is the FLARE method mentioned in Gao 2024, and how does it differ from standard RAG?",
+      "related_papers": ["gao_2024"],
+      "expected_answer_points": [
+        "Forward-Looking Active REtrieval",
+        "Actively decides when to retrieve during generation",
+        "Uses generation confidence to trigger retrieval",
+        "Differs from standard RAG by not always retrieving"
+      ],
+      "difficulty": "moderate",
+      "eval_focus": ["coverage", "citation_accuracy"]
+    },
+    {
+      "id": "HV-022",
+      "category": "边界挑战",
+      "question": "在 Gao 2024 的综述中，图表（如 RAG 框架对比图）传达了什么信息？请描述主要图表的内容。",
+      "related_papers": ["gao_2024"],
+      "expected_answer_points": [
+        "RAG 发展阶段的框架图描述",
+        "Naive/Advanced/Modular RAG 的对比示意图",
+        "图表传达的核心信息",
+        "如果无法获取图表内容，说明原因"
+      ],
+      "difficulty": "hard",
+      "eval_focus": ["parse_quality", "coverage"]
+    }
+  ]
+}

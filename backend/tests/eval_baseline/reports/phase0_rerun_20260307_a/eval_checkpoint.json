@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "meta": {
+    "base_url": "http://127.0.0.1:8000",
+    "rounds": 3,
+    "updated_at": "2026-03-07T19:31:34.049821"
+  },
+  "project": {
+    "project_id": 20,
+    "paper_map": {
+      "Gao 等 - 2024 - Retrieval-Augmented Generation for Large Language Models A Survey.pdf": 125,
+      "Fan 等 - 2024 - A Survey on RAG Meeting LLMs Towards Retrieval-Augmented Large Language Models.pdf": 126,
+      "Gupta 等 - 2024 - A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Fut.pdf": 127,
+      "Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strateg.pdf": 128,
+      "He_2016_Deep_Residual_Learning_CVPR.pdf": 129,
+      "Huang_2017_DenseNet_CVPR.pdf": 130,
+      "Xie_2017_ResNeXt_CVPR.pdf": 131,
+      "Vaswani_2017_Attention_Is_All_You_Need.pdf": 132,
+      "Devlin_2018_BERT.pdf": 133,
+      "Kingma_2013_Auto-Encoding_Variational_Bayes.pdf": 134,
+      "Kingma_2014_Adam.pdf": 135,
+      "Ho_2020_DDPM.pdf": 136,
+      "OCRmyPDF_3small.pdf": 137,
+      "OCRmyPDF_cardinal.pdf": 138,
+      "OCRmyPDF_multipage.pdf": 139,
+      "OCRmyPDF_tagged.pdf": 140,
+      "PDFPlumber_ca_warn_report.pdf": 141
+    },
+    "key_to_filename": {
+      "gao_2024": "Gao 等 - 2024 - Retrieval-Augmented Generation for Large Language Models A Survey.pdf",
+      "fan_2024": "Fan 等 - 2024 - A Survey on RAG Meeting LLMs Towards Retrieval-Augmented Large Language Models.pdf",
+      "gupta_2024": "Gupta 等 - 2024 - A Comprehensive Survey of Retrieval-Augmented Generation (RAG) Evolution, Current Landscape and Fut.pdf",
+      "cyber_2024": "Improving the Cybersecurity Awareness of Young Adults through a Game-Based Informal Learning Strateg.pdf"
+    }
+  },
+  "progress": {}
+}
