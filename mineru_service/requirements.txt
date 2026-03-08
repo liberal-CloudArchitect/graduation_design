@@ -1,0 +1,13 @@
+# Core
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+
+# PDF parsing — MinerU 端到端解析 (GPU required)
+magic-pdf[full]>=0.9.0
+
+# PyMuPDF — CPU 回退 + 轻量页面分析
+PyMuPDF>=1.23.0
+
+# GPU (magic-pdf dependency)
+torch>=2.0.0

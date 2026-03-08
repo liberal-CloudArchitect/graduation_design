@@ -32,7 +32,9 @@ class PaperResponse(BaseModel):
     file_path: Optional[str] = None
     status: str
     page_count: Optional[int] = None
+    chunk_count: Optional[int] = None
     project_id: int
+    parse_result: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
     
@@ -372,10 +374,37 @@ async def process_paper_async(paper_id: int, file_path: str):
                 )
                 paper.chunk_count = len(chunks)
                 paper.vector_ids = vector_ids
+                sections_dicts = []
+                for sec in doc.sections:
+                    if hasattr(sec, "title"):
+                        sections_dicts.append({
+                            "title": sec.title,
+                            "level": sec.level,
+                            "page_start": sec.page_start,
+                            "page_end": getattr(sec, "page_end", None),
+                            "anchor": getattr(sec, "anchor", None),
+                        })
+                    elif isinstance(sec, dict):
+                        sections_dicts.append(sec)
+
                 paper.parse_result = {
                     "chunk_count": len(chunks),
                     "skipped_reference_chunks": skipped_reference_chunks,
                     "skipped_reference_pages": skipped_reference_pages,
+                    # Phase 1: 路由诊断
+                    "parser_route": doc.parser_route,
+                    "parser_version": doc.parser_version,
+                    "complexity": doc.metadata.get("complexity"),
+                    "route_reason": doc.metadata.get("route_reason"),
+                    "fallback_reason": doc.metadata.get("fallback_reason"),
+                    # Phase 1: 解析产出
+                    "has_tables": doc.has_tables,
+                    "has_formulas": doc.has_formulas,
+                    "has_figures": doc.has_figures,
+                    "section_count": len(doc.sections),
+                    "sections": sections_dicts,
+                    "mineru_elapsed_ms": doc.metadata.get("mineru_elapsed_ms"),
+                    "raw_markdown": doc.raw_markdown,
                 }
             
             # 更新状态为完成

@@ -699,7 +699,13 @@ class BaselineEvaluator:
         return report
 
     async def _get_paper_metadata(self, paper_id: int, pdf_filename: str = "") -> Dict[str, Any]:
-        """Fetch paper metadata from API and infer structural properties from chunks."""
+        """Fetch paper metadata + parse_result from API.
+
+        Phase 1: read structured fields directly from parse_result (persisted
+        in JSONB) instead of guessing from RAG search results.  Falls back to
+        the old RAG-inference path when parse_result is missing (pre-Phase-1
+        data).
+        """
         data = await self.api.get_paper(paper_id)
         if not data:
             return {}
@@ -716,6 +722,18 @@ class BaselineEvaluator:
             "has_figures": False,
         }
 
+        pr = data.get("parse_result") or {}
+
+        if pr.get("parser_route"):
+            parsed["section_count"] = pr.get("section_count", 0)
+            sections = pr.get("sections") or []
+            parsed["section_names"] = [s.get("title", "") for s in sections if s.get("title")]
+            parsed["has_tables"] = bool(pr.get("has_tables"))
+            parsed["has_formulas"] = bool(pr.get("has_formulas"))
+            parsed["has_figures"] = bool(pr.get("has_figures"))
+            return parsed
+
+        # Fallback: old RAG-inference for pre-Phase-1 data
         try:
             search_result = await self.api.rag_search(
                 f"sections tables formulas of {pdf_filename}",

@@ -4,6 +4,7 @@
 # Python cache/artifacts
 __pycache__/
 *.py[cod]
+*.pyc
 
 # Test/runtime generated artifacts (do not commit)
 backend/uploads/
@@ -22,3 +23,4 @@ MinerU2.5-2509-1.2B/tokenizer_config.json
 MinerU2.5-2509-1.2B/tokenizer.json
 MinerU2.5-2509-1.2B/video_preprocessor_config.json
 MinerU2.5-2509-1.2B/vocab.json
+

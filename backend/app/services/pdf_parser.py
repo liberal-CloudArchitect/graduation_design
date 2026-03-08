@@ -30,6 +30,15 @@ class PDFDocument:
     pages: List[PDFPage] = field(default_factory=list)
     full_text: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # Phase 1 新增字段 (全部有默认值, legacy 路径自动兼容)
+    parser_route: str = "legacy"
+    parser_version: Optional[str] = None
+    raw_markdown: Optional[str] = None
+    sections: List[Any] = field(default_factory=list)  # List[SectionInfo]
+    has_tables: Optional[bool] = None
+    has_formulas: Optional[bool] = None
+    has_figures: Optional[bool] = None
     
     @property
     def page_count(self) -> int:
@@ -483,6 +492,13 @@ class LLMMetadataExtractor:
             return {}
 
 
+@dataclass
+class ComplexityResult:
+    """PDF 复杂度检测结果"""
+    complexity: str     # "simple" | "complex"
+    route_reason: str   # 人可读的判定理由
+
+
 class PDFParser:
     """
     多层PDF解析器
@@ -492,6 +508,9 @@ class PDFParser:
     Layer 2.5: LayoutLMv3 布局分析 (可选)
     Layer 3: 规则 + 正则 元数据提取
     Layer 4: LLM 智能提取 (可选)
+    
+    Phase 1: 当 MINERU_ENABLED=True 时，复杂 PDF 走 MinerU 服务，
+    简单 PDF 继续走现有管线。
     """
     
     def __init__(
@@ -512,40 +531,191 @@ class PDFParser:
                 self.layout_analyzer = LayoutAnalyzer()
             except Exception as e:
                 logger.warning(f"Layout analyzer not available: {e}")
-    
+
+        self._mineru_client = None
+        self._markdown_processor = None
+        self._sanity_gate = None
+
+    def _ensure_mineru_deps(self):
+        """延迟初始化 MinerU 相关依赖（仅在 MINERU_ENABLED 时需要）"""
+        if self._mineru_client is not None:
+            return
+        from app.core.config import settings
+        from app.services.mineru_client import MinerUClient
+        from app.services.markdown_processor import MarkdownPostProcessor
+        from app.services.parse_sanity import ParseSanityGate
+
+        self._mineru_client = MinerUClient(
+            base_url=settings.MINERU_API_URL,
+            timeout=settings.PDF_PARSE_TIMEOUT,
+        )
+        self._markdown_processor = MarkdownPostProcessor()
+        self._sanity_gate = ParseSanityGate()
+
     async def parse(self, pdf_path: str) -> PDFDocument:
+        """解析 PDF 文档 -- 带路由逻辑。
+
+        MINERU_ENABLED=False (默认): 全部走 legacy 管线，行为与基线一致。
+        MINERU_ENABLED=True: 简单 PDF 走 legacy; 复杂 PDF 走 MinerU + 降级。
         """
-        解析PDF文档
-        
-        Args:
-            pdf_path: PDF文件路径
-            
-        Returns:
-            PDFDocument对象
-        """
+        from app.core.config import settings
+
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
-        
-        logger.info(f"Parsing PDF: {pdf_path}")
-        
-        # Step 1: 提取文本
+
+        if not settings.MINERU_ENABLED:
+            doc = await self._parse_legacy(pdf_path)
+            doc.parser_route = "legacy"
+            return doc
+
+        cr = self._detect_complexity(pdf_path)
+
+        if cr.complexity == "simple":
+            doc = await self._parse_legacy(pdf_path)
+            doc.parser_route = "legacy"
+            doc.metadata["complexity"] = cr.complexity
+            doc.metadata["route_reason"] = cr.route_reason
+            return doc
+
+        try:
+            doc = await self._parse_with_mineru(pdf_path, cr.route_reason)
+            doc.metadata["complexity"] = cr.complexity
+            doc.metadata["route_reason"] = cr.route_reason
+            return doc
+        except Exception as e:
+            logger.warning(f"MinerU failed, falling back to legacy: {e}")
+            doc = await self._parse_legacy(pdf_path)
+            doc.parser_route = "legacy"
+            doc.metadata["complexity"] = cr.complexity
+            doc.metadata["route_reason"] = cr.route_reason
+            doc.metadata["fallback_reason"] = str(e)
+            return doc
+
+    def _detect_complexity(self, pdf_path: str) -> ComplexityResult:
+        """轻量复杂度检测 -- 仅用 PyMuPDF (fitz) 页级元信息"""
+        try:
+            import fitz
+        except ImportError:
+            return ComplexityResult("complex", "fitz_unavailable")
+
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception:
+            return ComplexityResult("complex", "fitz_open_failed")
+
+        is_scanned = True
+        has_images = False
+
+        for page in doc:
+            text_len = len(page.get_text("text"))
+            image_count = len(page.get_images())
+            if text_len > 50:
+                is_scanned = False
+            if image_count > 0:
+                has_images = True
+
+        page_count = doc.page_count
+        doc.close()
+
+        if is_scanned:
+            return ComplexityResult("complex", "scanned_pdf")
+        if has_images:
+            return ComplexityResult("complex", "contains_images")
+        if page_count > 3:
+            return ComplexityResult("complex", "multi_page_document")
+        return ComplexityResult("simple", "plain_text")
+
+    async def _parse_with_mineru(self, pdf_path: str, route_reason: str) -> PDFDocument:
+        """使用 MinerU 服务解析复杂 PDF，含 sanity gate 和降级"""
+        self._ensure_mineru_deps()
+
+        mineru_response = await self._mineru_client.parse(pdf_path)
+
+        try:
+            import fitz
+            fitz_doc = fitz.open(pdf_path)
+            fitz_page_count = fitz_doc.page_count
+            fitz_doc.close()
+        except Exception:
+            fitz_page_count = max(len(mineru_response.pages), 1)
+
+        sanity = self._sanity_gate.check(mineru_response.markdown, fitz_page_count)
+        if not sanity.passed:
+            logger.warning(f"MinerU sanity gate failed: {sanity.reason}")
+            doc = await self._parse_legacy(pdf_path)
+            doc.parser_route = "legacy"
+            doc.metadata["fallback_reason"] = sanity.reason
+            return doc
+
+        cleaned_md = self._markdown_processor.process(mineru_response.markdown)
+        md_metadata = self._markdown_processor.extract_metadata(cleaned_md)
+        sections = self._markdown_processor.extract_sections(
+            cleaned_md, mineru_response.pages
+        )
+
+        pages = []
+        for p in mineru_response.pages:
+            page_md = p.get("markdown", "")
+            plain = self._markdown_processor.markdown_to_plain_text(page_md)
+            pages.append(PDFPage(
+                page_number=p.get("page_number", 1),
+                text=plain,
+            ))
+
+        full_plain = self._markdown_processor.markdown_to_plain_text(cleaned_md)
+
+        title = (
+            md_metadata.get("title")
+            or mineru_response.metadata.get("title")
+        )
+        abstract = md_metadata.get("abstract")
+
+        doc = PDFDocument(
+            file_path=pdf_path,
+            title=title,
+            abstract=abstract,
+            pages=pages,
+            full_text=full_plain,
+            metadata={
+                "title": title,
+                "abstract": abstract,
+                "mineru_elapsed_ms": mineru_response.elapsed_ms,
+            },
+            parser_route="mineru",
+            parser_version=mineru_response.parser_version,
+            raw_markdown=cleaned_md,
+            sections=sections,
+            has_tables=md_metadata.get("has_tables"),
+            has_formulas=md_metadata.get("has_formulas"),
+            has_figures=md_metadata.get("has_figures"),
+        )
+
+        logger.info(
+            f"MinerU parsed: {doc.page_count} pages, "
+            f"{len(sections)} sections, "
+            f"tables={doc.has_tables}, formulas={doc.has_formulas}, "
+            f"elapsed={mineru_response.elapsed_ms}ms"
+        )
+        return doc
+
+    async def _parse_legacy(self, pdf_path: str) -> PDFDocument:
+        """现有 legacy 解析管线 -- 内部逻辑与基线完全一致"""
+        logger.info(f"Parsing PDF (legacy): {pdf_path}")
+
         pages = self.text_extractor.extract(pdf_path)
-        
-        # Step 2: 如果文本太少，尝试OCR
+
         total_text = " ".join(p.text for p in pages)
         if len(total_text.strip()) < 100 and self.ocr_engine:
             logger.info("Text too short, trying OCR...")
             pages = self.ocr_engine.recognize(pdf_path)
             total_text = " ".join(p.text for p in pages)
-        
-        # Step 2.5: LayoutLMv3 布局分析
+
         layout_data = None
         if self.layout_analyzer:
             try:
                 layouts = await self.layout_analyzer.analyze_pdf(pdf_path)
                 if layouts:
                     layout_data = layouts
-                    # 将布局信息附加到页面
                     for page_layout in layouts:
                         idx = page_layout.page_number - 1
                         if 0 <= idx < len(pages):
@@ -564,45 +734,37 @@ class PDFParser:
                     logger.info(f"Layout analysis completed for {len(layouts)} pages")
             except Exception as e:
                 logger.warning(f"Layout analysis failed: {e}")
-        
-        # Step 3: 提取元数据 (结合布局信息增强)
+
         metadata = self.metadata_extractor.extract(total_text)
-        
-        # 如果有布局数据，用布局增强元数据
+
         if layout_data:
             layout_metadata = self._extract_metadata_from_layout(layout_data)
-            # 标题：缺失或低质量时优先采用布局结果
             layout_title = layout_metadata.get("title")
             current_title = metadata.get("title")
             if layout_title and (not current_title or not self.metadata_extractor._is_likely_title(current_title)):
                 metadata["title"] = layout_title
 
-            # 作者：缺失或低质量时优先采用布局结果
             layout_authors = layout_metadata.get("authors") or []
             current_authors = metadata.get("authors") or []
             if layout_authors and not self.metadata_extractor.is_reliable_authors(current_authors):
                 metadata["authors"] = layout_authors
 
-            # 摘要：缺失或低质量时优先采用布局结果
             layout_abstract = layout_metadata.get("abstract")
             current_abstract = metadata.get("abstract")
             if layout_abstract and not self.metadata_extractor.is_reliable_abstract(current_abstract):
                 if self.metadata_extractor.is_reliable_abstract(layout_abstract):
                     metadata["abstract"] = layout_abstract
 
-            # 其他字段保持“缺失再补齐”
             for key, value in layout_metadata.items():
                 if key in {"title", "authors", "abstract"}:
                     continue
                 if value and not metadata.get(key):
                     metadata[key] = value
-        
-        # Step 4: LLM增强（可选）
+
         if self.llm_extractor and not metadata.get("title"):
             llm_metadata = await self.llm_extractor.extract(total_text)
             metadata.update({k: v for k, v in llm_metadata.items() if v})
-        
-        # 构建结果
+
         doc = PDFDocument(
             file_path=pdf_path,
             title=metadata.get("title"),
@@ -613,11 +775,11 @@ class PDFParser:
             full_text=total_text,
             metadata=metadata
         )
-        
-        logger.info(f"Parsed PDF: {doc.page_count} pages, title: {doc.title}")
-        
+
+        logger.info(f"Parsed PDF (legacy): {doc.page_count} pages, title: {doc.title}")
+
         return doc
-    
+
     def _extract_metadata_from_layout(self, layouts) -> Dict[str, Any]:
         """从布局分析结果中提取元数据"""
         from app.services.layout_analyzer import RegionType

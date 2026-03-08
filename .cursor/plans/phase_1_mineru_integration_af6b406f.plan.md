@@ -4,31 +4,31 @@ overview: Phase 0 baseline is complete. Phase 1 focuses on upgrading the PDF par
 todos:
   - id: step1-mineru-service
     content: "搭建 MinerU 独立解析服务: Dockerfile + FastAPI wrapper + /parse 端点, 部署到 4090 服务器"
-    status: pending
+    status: completed
   - id: step2-config
     content: "在 config.py 中新增 Feature Flags: MINERU_ENABLED, MINERU_API_URL, PDF_PARSE_TIMEOUT (简单 PDF 路径不变, 无 PARSER_ROUTER_ENABLED)"
-    status: pending
+    status: completed
   - id: step3-client-and-postprocessor
     content: 新建 mineru_client.py (HTTP client + 超时/重试) 和 markdown_processor.py (清洗 + 章节/元数据提取)
-    status: pending
+    status: completed
   - id: step4-sanity-gate
     content: "新建 parse_sanity.py: 仅做 garble_rate + text_length 两项硬门槛, 不合格触发降级到 legacy"
-    status: pending
+    status: completed
   - id: step5-data-contract
     content: 定义 PDFDocument 新增字段 schema (parser_route, parser_version, sections, raw_markdown) 和 parse_result 扩展结构, 旧数据兼容策略
-    status: pending
+    status: completed
   - id: step6-router
     content: "改造 pdf_parser.py: 现有 parse() 封装为 _parse_legacy(); 新增 _parse_with_mineru(); 路由逻辑仅对复杂 PDF 生效, 简单 PDF 不变"
-    status: pending
+    status: completed
   - id: step7-papers
     content: "适配 papers.py: MinerU 输出的 Markdown 转为纯文本后交给现有 SemanticChunker (不改 chunker), 记录 parse_result 扩展字段"
-    status: pending
+    status: completed
   - id: step8-deploy
     content: 主后端仅新增 httpx 依赖; MinerU 服务独立 requirements + Docker; 编写部署文档
-    status: pending
+    status: completed
   - id: step9-validate
     content: "验证: ParseBench >= 0.73 + AnswerBench parse-sensitive 子集 coverage 不低于基线 + 回归无退化"
-    status: pending
+    status: completed
 isProject: false
 ---
 

@@ -93,6 +93,11 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 128     # 从 50 提升到 128，减少上下文断裂
     RETRIEVAL_TOP_K: int = 5
     
+    # Phase 1: MinerU 解析 (仅对复杂 PDF 生效, 简单 PDF 继续走现有管线)
+    MINERU_ENABLED: bool = False
+    MINERU_API_URL: str = "http://localhost:8010"
+    PDF_PARSE_TIMEOUT: int = 120
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
