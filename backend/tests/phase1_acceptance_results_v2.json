@@ -1,0 +1,103 @@
+{
+  "timestamp": "2026-03-12 22:04:10",
+  "mineru_url": "http://192.168.0.87:8010",
+  "summary": {
+    "total_pdfs": 27,
+    "parse_success": 4,
+    "complex_avg_score": 85.0,
+    "formula_detection_rate": 1.0,
+    "table_detection_rate": 0,
+    "criteria_passed": 4,
+    "criteria_total": 6
+  },
+  "criteria": [
+    {
+      "name": "1. 复杂论文解析质量",
+      "passed": true,
+      "detail": "avg_score=85.0"
+    },
+    {
+      "name": "2. 公式还原 (LaTeX)",
+      "passed": true,
+      "detail": "rate=100.0%"
+    },
+    {
+      "name": "3. 表格还原 (Markdown)",
+      "passed": false,
+      "detail": "rate=0.0%"
+    },
+    {
+      "name": "4. 解析性能",
+      "passed": true,
+      "detail": "p95=30606ms"
+    },
+    {
+      "name": "5. 降级机制",
+      "passed": false,
+      "detail": "failures=23"
+    },
+    {
+      "name": "6. API 兼容性",
+      "passed": true,
+      "detail": "response structure OK"
+    }
+  ],
+  "per_file": [
+    {
+      "name": "He_2016_Deep_Residual_Learning_CVPR",
+      "category": "dual_column",
+      "score": 85.0,
+      "elapsed_ms": 30606,
+      "markdown_length": 45535,
+      "sections": 14,
+      "tables": 0,
+      "formulas_block": 2,
+      "formulas_inline": 79,
+      "garble_rate": 0.0,
+      "chars_per_page": 5059.4,
+      "issues": []
+    },
+    {
+      "name": "Huang_2017_DenseNet_CVPR",
+      "category": "dual_column",
+      "score": 85.0,
+      "elapsed_ms": 23729,
+      "markdown_length": 48121,
+      "sections": 13,
+      "tables": 0,
+      "formulas_block": 2,
+      "formulas_inline": 140,
+      "garble_rate": 0.0,
+      "chars_per_page": 5346.8,
+      "issues": []
+    },
+    {
+      "name": "Xie_2017_ResNeXt_CVPR",
+      "category": "dual_column",
+      "score": 85.0,
+      "elapsed_ms": 23579,
+      "markdown_length": 45801,
+      "sections": 17,
+      "tables": 0,
+      "formulas_block": 4,
+      "formulas_inline": 126,
+      "garble_rate": 0.0,
+      "chars_per_page": 5089.0,
+      "issues": []
+    },
+    {
+      "name": "Devlin_2018_BERT",
+      "category": "formula_heavy",
+      "score": 85.0,
+      "elapsed_ms": 28574,
+      "markdown_length": 67645,
+      "sections": 35,
+      "tables": 0,
+      "formulas_block": 6,
+      "formulas_inline": 109,
+      "garble_rate": 0.0,
+      "chars_per_page": 4227.8,
+      "issues": []
+    }
+  ]
+}
