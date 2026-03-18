@@ -104,18 +104,23 @@ class VectorRetriever:
                 data=[query_vector],
                 limit=top_k,
                 filter=filter_expr,
-                output_fields=["paper_id", "chunk_index", "page_number", "text"]
+                output_fields=["paper_id", "chunk_index", "page_number", "text", "parent_id", "section_path"]
             )
             
             retrieval_results = []
             if results and len(results) > 0:
                 for hit in results[0]:
+                    entity = hit.get("entity", {})
                     result = RetrievalResult(
-                        text=hit.get("entity", {}).get("text", ""),
+                        text=entity.get("text", ""),
                         score=hit.get("distance", 0),
-                        paper_id=hit.get("entity", {}).get("paper_id", 0),
-                        chunk_index=hit.get("entity", {}).get("chunk_index", 0),
-                        page_number=hit.get("entity", {}).get("page_number"),
+                        paper_id=entity.get("paper_id", 0),
+                        chunk_index=entity.get("chunk_index", 0),
+                        page_number=entity.get("page_number"),
+                        metadata={
+                            "parent_id": entity.get("parent_id"),
+                            "section_path": entity.get("section_path"),
+                        },
                     )
                     retrieval_results.append(result)
             
@@ -226,7 +231,9 @@ class BM25Retriever:
                 "text_en": {
                     "type": "text",
                     "analyzer": "english"
-                }
+                },
+                "parent_id": {"type": "keyword"},
+                "section_path": {"type": "keyword"},
             }
         }
         
@@ -283,7 +290,7 @@ class BM25Retriever:
                 body={
                     "query": {"bool": {"must": must_clauses}},
                     "size": top_k,
-                    "_source": ["paper_id", "chunk_index", "page_number", "text"]
+                    "_source": ["paper_id", "chunk_index", "page_number", "text", "parent_id", "section_path"]
                 }
             )
             
@@ -295,7 +302,11 @@ class BM25Retriever:
                     score=hit["_score"],
                     paper_id=source.get("paper_id", 0),
                     chunk_index=source.get("chunk_index", 0),
-                    page_number=source.get("page_number")
+                    page_number=source.get("page_number"),
+                    metadata={
+                        "parent_id": source.get("parent_id"),
+                        "section_path": source.get("section_path"),
+                    },
                 ))
             
             return results
@@ -321,7 +332,9 @@ class BM25Retriever:
                     "chunk_index": i,
                     "page_number": chunk.get("page_number", 0),
                     "text": chunk.get("text", ""),
-                    "text_en": chunk.get("text", "")
+                    "text_en": chunk.get("text", ""),
+                    "parent_id": chunk.get("parent_id", ""),
+                    "section_path": chunk.get("section_path", ""),
                 }
                 await self.client.index(
                     index=self.index_name,

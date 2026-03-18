@@ -14,6 +14,10 @@ class Chunk:
     start_char: int
     end_char: int
     metadata: dict = None
+    chunk_type: str = "child"
+    parent_id: Optional[str] = None
+    section_path: Optional[str] = None
+    section_anchor: Optional[str] = None
     
     def __post_init__(self):
         if self.metadata is None:
@@ -142,9 +146,12 @@ class SemanticChunker:
         while start < len(text):
             end = min(start + self.chunk_size, len(text))
             chunks.append(text[start:end])
-            start = end - self.chunk_overlap
-            if start >= len(text):
+            if end >= len(text):
                 break
+            new_start = end - self.chunk_overlap
+            if new_start <= start:
+                break
+            start = new_start
         return chunks
     
     def _merge_small_chunks(self, chunks: List[str]) -> List[str]:
@@ -254,6 +261,124 @@ class SentenceChunker:
             chunks.append(" ".join(current_chunk))
         
         return chunks
+
+
+class HierarchicalChunker:
+    """Parent-child document chunker (Phase 2).
+
+    Splits markdown into section-level parent chunks and sub-sentence child
+    chunks.  Parent chunks are stored in MongoDB only (never embedded); child
+    chunks are indexed in Milvus/ES/MongoDB with a ``parent_id`` pointer.
+    """
+
+    _REFERENCE_SECTION_RE = re.compile(
+        r"^\s*#{0,3}\s*(references?|参考文献|bibliography)\s*$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+
+    def __init__(
+        self,
+        parent_max_tokens: int = 2000,
+        child_max_tokens: int = 400,
+        child_overlap: int = 50,
+    ):
+        from app.services.markdown_processor import MarkdownSectionSplitter
+        self.splitter = MarkdownSectionSplitter()
+        self.child_chunker = SemanticChunker(
+            chunk_size=child_max_tokens, chunk_overlap=child_overlap
+        )
+        self.parent_max_tokens = parent_max_tokens
+
+    def chunk(
+        self,
+        markdown: str,
+        paper_id: int,
+        existing_sections=None,
+    ) -> List[Chunk]:
+        leaf_sections = self.splitter.split(markdown, existing_sections)
+        all_chunks: List[Chunk] = []
+        child_seq = 0
+
+        for p_seq, section in enumerate(leaf_sections):
+            if self._is_reference_section(section.text):
+                continue
+            if len(section.text.strip()) < 50:
+                continue
+
+            parent_id = f"{paper_id}_p{p_seq}"
+            sub_texts = self._maybe_split_oversized(section.text)
+
+            for sub_idx, sub_text in enumerate(sub_texts):
+                actual_parent_id = (
+                    parent_id if len(sub_texts) == 1
+                    else f"{parent_id}_{sub_idx}"
+                )
+
+                parent = Chunk(
+                    text=sub_text,
+                    index=-1,
+                    start_char=section.char_start,
+                    end_char=section.char_end,
+                    metadata={
+                        "page_start": section.page_start,
+                        "page_end": section.page_end,
+                        "parent_id": actual_parent_id,
+                    },
+                    chunk_type="parent",
+                    parent_id=actual_parent_id,
+                    section_path=section.path,
+                    section_anchor=section.anchor,
+                )
+                all_chunks.append(parent)
+
+                children = self.child_chunker.split_text(sub_text)
+                child_indices = []
+                for child in children:
+                    child.chunk_type = "child"
+                    child.parent_id = actual_parent_id
+                    child.section_path = section.path
+                    child.section_anchor = section.anchor
+                    child.index = child_seq
+                    child.metadata = {
+                        **(child.metadata or {}),
+                        "page_number": section.page_start,
+                        "parent_id": actual_parent_id,
+                    }
+                    child_indices.append(child_seq)
+                    child_seq += 1
+                    all_chunks.append(child)
+
+                parent.metadata["child_chunk_indices"] = child_indices
+
+        if not all_chunks:
+            fallback = self.child_chunker.split_text(markdown)
+            for i, c in enumerate(fallback):
+                c.index = i
+            return fallback
+
+        return all_chunks
+
+    def _maybe_split_oversized(self, text: str) -> List[str]:
+        """Split a section that exceeds parent_max_tokens at paragraph boundaries."""
+        if len(text) <= self.parent_max_tokens:
+            return [text]
+
+        paragraphs = re.split(r"\n{2,}", text)
+        parts: List[str] = []
+        current = ""
+        for para in paragraphs:
+            if current and len(current) + len(para) + 2 > self.parent_max_tokens:
+                parts.append(current.strip())
+                current = para
+            else:
+                current = f"{current}\n\n{para}" if current else para
+        if current.strip():
+            parts.append(current.strip())
+        return parts if parts else [text]
+
+    def _is_reference_section(self, text: str) -> bool:
+        snippet = text[:400]
+        return bool(self._REFERENCE_SECTION_RE.search(snippet))
 
 
 # 默认分块器实例（使用配置中的参数）

@@ -313,57 +313,115 @@ async def process_paper_async(paper_id: int, file_path: str):
             if pub_date:
                 paper.publication_date = pub_date
             
-            # 分块（按页处理，保留页码）
-            chunker = SemanticChunker(
-                chunk_size=settings.CHUNK_SIZE,
-                chunk_overlap=settings.CHUNK_OVERLAP,
-            )
+            # Phase 2: Hierarchical chunking path
             chunks = []
             skipped_reference_chunks = 0
             skipped_reference_pages = 0
 
-            for page in (doc.pages or []):
-                page_text, page_region_types = _extract_layout_page_text(page)
-                if not page_text.strip():
-                    continue
+            if settings.HIERARCHICAL_CHUNKING_ENABLED and doc.raw_markdown:
+                from app.rag.chunker import HierarchicalChunker
+                h_chunker = HierarchicalChunker(
+                    parent_max_tokens=settings.PARENT_CHUNK_MAX_TOKENS,
+                    child_max_tokens=settings.CHILD_CHUNK_MAX_TOKENS,
+                )
+                existing_sections = doc.sections if doc.sections else None
+                all_chunks = h_chunker.chunk(
+                    doc.raw_markdown, paper_id, existing_sections=existing_sections
+                )
+                parents_raw = []
+                children_raw = []
+                for c in all_chunks:
+                    if c.chunk_type == "parent":
+                        parents_raw.append(c)
+                    elif _is_reference_heavy_text(c.text):
+                        skipped_reference_chunks += 1
+                    else:
+                        children_raw.append(c)
 
-                if _is_reference_dominant_page(page_region_types, page_text):
-                    skipped_reference_pages += 1
-                    continue
+                old_to_new: dict = {}
+                for new_idx, c in enumerate(children_raw):
+                    old_to_new[c.index] = new_idx
+                    c.index = new_idx
 
-                page_chunks = chunker.split_text(
-                    page_text,
-                    metadata={
-                        "page_number": page.page_number,
-                        "region_types": sorted(set(rt for rt in page_region_types if rt)),
-                    },
+                for p in parents_raw:
+                    old_indices = (p.metadata or {}).get("child_chunk_indices", [])
+                    p.metadata["child_chunk_indices"] = [
+                        old_to_new[i] for i in old_indices if i in old_to_new
+                    ]
+
+                for c in parents_raw:
+                    if not (c.metadata or {}).get("child_chunk_indices"):
+                        continue
+                    chunks.append({
+                        "text": c.text,
+                        "page_number": (c.metadata or {}).get("page_number")
+                                       or (c.metadata or {}).get("page_start"),
+                        "metadata": c.metadata or {},
+                        "chunk_type": c.chunk_type,
+                        "parent_id": c.parent_id,
+                        "section_path": c.section_path,
+                        "section_anchor": c.section_anchor,
+                    })
+                for c in children_raw:
+                    chunks.append({
+                        "text": c.text,
+                        "page_number": (c.metadata or {}).get("page_number")
+                                       or (c.metadata or {}).get("page_start"),
+                        "metadata": c.metadata or {},
+                        "chunk_type": c.chunk_type,
+                        "parent_id": c.parent_id,
+                        "section_path": c.section_path,
+                        "section_anchor": c.section_anchor,
+                    })
+            else:
+                # Flat chunking path (unchanged)
+                chunker = SemanticChunker(
+                    chunk_size=settings.CHUNK_SIZE,
+                    chunk_overlap=settings.CHUNK_OVERLAP,
                 )
 
-                for c in page_chunks:
-                    if _is_reference_heavy_text(c.text):
-                        skipped_reference_chunks += 1
+                for page in (doc.pages or []):
+                    page_text, page_region_types = _extract_layout_page_text(page)
+                    if not page_text.strip():
                         continue
-                    chunks.append(
-                        {
-                            "text": c.text,
+
+                    if _is_reference_dominant_page(page_region_types, page_text):
+                        skipped_reference_pages += 1
+                        continue
+
+                    page_chunks = chunker.split_text(
+                        page_text,
+                        metadata={
                             "page_number": page.page_number,
-                            "metadata": c.metadata or {},
-                        }
+                            "region_types": sorted(set(rt for rt in page_region_types if rt)),
+                        },
                     )
 
-            # 回退：若按页分块为空，使用全文分块
-            if not chunks and doc.full_text:
-                for c in chunker.split_text(doc.full_text):
-                    if _is_reference_heavy_text(c.text):
-                        skipped_reference_chunks += 1
-                        continue
-                    chunks.append(
-                        {
-                            "text": c.text,
-                            "page_number": None,
-                            "metadata": c.metadata or {},
-                        }
-                    )
+                    for c in page_chunks:
+                        if _is_reference_heavy_text(c.text):
+                            skipped_reference_chunks += 1
+                            continue
+                        chunks.append(
+                            {
+                                "text": c.text,
+                                "page_number": page.page_number,
+                                "metadata": c.metadata or {},
+                            }
+                        )
+
+                # 回退：若按页分块为空，使用全文分块
+                if not chunks and doc.full_text:
+                    for c in chunker.split_text(doc.full_text):
+                        if _is_reference_heavy_text(c.text):
+                            skipped_reference_chunks += 1
+                            continue
+                        chunks.append(
+                            {
+                                "text": c.text,
+                                "page_number": None,
+                                "metadata": c.metadata or {},
+                            }
+                        )
             
             # 索引到向量库
             if chunks:
@@ -372,7 +430,9 @@ async def process_paper_async(paper_id: int, file_path: str):
                     chunks=chunks,
                     project_id=paper.project_id
                 )
-                paper.chunk_count = len(chunks)
+                paper.chunk_count = sum(
+                    1 for c in chunks if c.get("chunk_type") != "parent"
+                )
                 paper.vector_ids = vector_ids
                 sections_dicts = []
                 for sec in doc.sections:
@@ -388,7 +448,7 @@ async def process_paper_async(paper_id: int, file_path: str):
                         sections_dicts.append(sec)
 
                 paper.parse_result = {
-                    "chunk_count": len(chunks),
+                    "chunk_count": paper.chunk_count,
                     "skipped_reference_chunks": skipped_reference_chunks,
                     "skipped_reference_pages": skipped_reference_pages,
                     # Phase 1: 路由诊断

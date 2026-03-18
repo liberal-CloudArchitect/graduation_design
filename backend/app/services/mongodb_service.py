@@ -45,6 +45,7 @@ class MongoDBService:
         Args:
             paper_id: 文献ID
             chunks: 分块列表，每个包含 {text, index, page_number, metadata}
+                    Phase 2 新增可选字段: parent_id, section_path, section_anchor
         """
         if self._use_fallback:
             return self._fallback_insert(paper_id, chunks)
@@ -53,14 +54,21 @@ class MongoDBService:
             collection = self.db.paper_chunks
             docs = []
             for chunk in chunks:
-                docs.append({
+                doc = {
                     "paper_id": paper_id,
                     "chunk_index": chunk.get("index", 0),
                     "text": chunk.get("text", ""),
                     "page_number": chunk.get("page_number"),
                     "metadata": chunk.get("metadata", {}),
-                    "created_at": datetime.utcnow()
-                })
+                    "created_at": datetime.utcnow(),
+                }
+                if chunk.get("parent_id"):
+                    doc["parent_id"] = chunk["parent_id"]
+                if chunk.get("section_path"):
+                    doc["section_path"] = chunk["section_path"]
+                if chunk.get("section_anchor"):
+                    doc["section_anchor"] = chunk["section_anchor"]
+                docs.append(doc)
             
             result = await collection.insert_many(docs)
             return [str(id) for id in result.inserted_ids]
@@ -83,6 +91,10 @@ class MongoDBService:
                 "chunk_index": chunk.get("index", i),
                 "text": chunk.get("text", ""),
                 "page_number": chunk.get("page_number"),
+                "metadata": chunk.get("metadata", {}),
+                "parent_id": chunk.get("parent_id"),
+                "section_path": chunk.get("section_path"),
+                "section_anchor": chunk.get("section_anchor"),
             })
             ids.append(doc_id)
         
@@ -150,19 +162,105 @@ class MongoDBService:
         return all_chunks
     
     async def delete_paper_chunks(self, paper_id: int) -> int:
-        """删除文献所有分块"""
+        """删除文献所有分块（含子块和父块）"""
         if self._use_fallback:
             key = f"paper_{paper_id}"
             count = len(self._fallback_store.get(key, []))
             self._fallback_store.pop(key, None)
+            parent_key = f"parent_{paper_id}"
+            count += len(self._fallback_store.get(parent_key, []))
+            self._fallback_store.pop(parent_key, None)
             return count
         
         try:
             collection = self.db.paper_chunks
             result = await collection.delete_many({"paper_id": paper_id})
-            return result.deleted_count
+            parent_count = await self.delete_parent_chunks(paper_id)
+            return result.deleted_count + parent_count
         except Exception as e:
             logger.error(f"MongoDB delete failed: {e}")
+            return 0
+
+    async def insert_parent_chunks(self, paper_id: int, parent_chunks: List[Dict[str, Any]]) -> List[str]:
+        """Store parent chunks in paper_parent_chunks collection."""
+        if not parent_chunks:
+            return []
+
+        if self._use_fallback:
+            key = f"parent_{paper_id}"
+            if key not in self._fallback_store:
+                self._fallback_store[key] = []
+            ids = []
+            for pc in parent_chunks:
+                pid = pc.get("parent_id", "")
+                self._fallback_store[key].append({
+                    "_id": pid,
+                    "parent_id": pid,
+                    "paper_id": paper_id,
+                    **pc,
+                })
+                ids.append(pid)
+            return ids
+
+        try:
+            collection = self.db.paper_parent_chunks
+            docs = []
+            for pc in parent_chunks:
+                docs.append({
+                    "parent_id": pc.get("parent_id", ""),
+                    "paper_id": paper_id,
+                    "section_path": pc.get("section_path"),
+                    "section_anchor": pc.get("section_anchor"),
+                    "text": pc.get("text", ""),
+                    "child_chunk_indices": pc.get("child_chunk_indices", []),
+                    "page_range": pc.get("page_range", []),
+                    "metadata": pc.get("metadata", {}),
+                    "created_at": datetime.utcnow(),
+                })
+            result = await collection.insert_many(docs)
+            return [str(id) for id in result.inserted_ids]
+        except Exception as e:
+            logger.error(f"MongoDB insert parent chunks failed: {e}")
+            return []
+
+    async def get_parent_chunks_by_ids(self, parent_ids: List[str]) -> Dict[str, Dict]:
+        """Batch fetch parent chunks: returns {parent_id: doc} map."""
+        if not parent_ids:
+            return {}
+
+        if self._use_fallback:
+            result = {}
+            for key, chunks in self._fallback_store.items():
+                if not key.startswith("parent_"):
+                    continue
+                for chunk in chunks:
+                    if chunk.get("parent_id") in parent_ids:
+                        result[chunk["parent_id"]] = chunk
+            return result
+
+        try:
+            collection = self.db.paper_parent_chunks
+            cursor = collection.find({"parent_id": {"$in": parent_ids}})
+            docs = await cursor.to_list(length=len(parent_ids) + 10)
+            return {doc["parent_id"]: doc for doc in docs if doc.get("parent_id")}
+        except Exception as e:
+            logger.error(f"MongoDB get parent chunks failed: {e}")
+            return {}
+
+    async def delete_parent_chunks(self, paper_id: int) -> int:
+        """Delete all parent chunks for a paper."""
+        if self._use_fallback:
+            key = f"parent_{paper_id}"
+            count = len(self._fallback_store.get(key, []))
+            self._fallback_store.pop(key, None)
+            return count
+
+        try:
+            collection = self.db.paper_parent_chunks
+            result = await collection.delete_many({"paper_id": paper_id})
+            return result.deleted_count
+        except Exception as e:
+            logger.error(f"MongoDB delete parent chunks failed: {e}")
             return 0
     
     async def store_parse_result(self, paper_id: int, result: Dict[str, Any]):

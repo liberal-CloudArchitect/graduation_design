@@ -262,6 +262,7 @@ class RAGEngine:
         Args:
             paper_id: 文献ID
             chunks: 文本分块列表（支持 str 或 {"text", "page_number", "metadata"}）
+                    Phase 2: dicts may include chunk_type, parent_id, section_path, section_anchor
             project_id: 项目ID
             
         Returns:
@@ -271,8 +272,18 @@ class RAGEngine:
             return []
         
         from app.services.mongodb_service import mongodb_service
-        
-        # 统一为结构化分块
+
+        has_hierarchical = any(
+            isinstance(item, dict) and item.get("chunk_type") == "parent"
+            for item in chunks
+        )
+
+        if has_hierarchical:
+            return await self._index_paper_hierarchical(
+                paper_id, chunks, project_id, mongodb_service
+            )
+
+        # --- Flat (legacy) path: unchanged ---
         normalized_chunks = []
         for item in chunks:
             if isinstance(item, dict):
@@ -298,10 +309,8 @@ class RAGEngine:
         if not normalized_chunks:
             return []
 
-        # 向量化
         embeddings = self.embed([c["text"] for c in normalized_chunks])
         
-        # 构建实体
         entities = []
         vector_ids = []
         chunk_docs = []
@@ -322,13 +331,10 @@ class RAGEngine:
                 "page_number": chunk.get("page_number"),
                 "metadata": chunk.get("metadata", {}),
             })
-            # 内存缓存
             self._chunk_cache[f"{paper_id}_{i}"] = chunk.get("text", "")
         
-        # 存储到MongoDB
         await mongodb_service.insert_chunks(paper_id, chunk_docs)
         
-        # 插入Milvus
         if self.milvus:
             try:
                 self.milvus.insert(
@@ -338,7 +344,6 @@ class RAGEngine:
             except Exception as e:
                 logger.warning(f"Milvus insert failed: {e}")
         
-        # 同步索引到 Elasticsearch（如果混合检索器可用）
         if self.hybrid_retriever and self.hybrid_retriever.bm25_retriever.client:
             try:
                 await self.hybrid_retriever.bm25_retriever.index(
@@ -351,8 +356,110 @@ class RAGEngine:
         logger.info(f"Indexed {len(chunks)} chunks for paper {paper_id}")
         return vector_ids
 
+    async def _index_paper_hierarchical(
+        self,
+        paper_id: int,
+        chunks: List[Dict],
+        project_id: Optional[int],
+        mongodb_service,
+    ) -> List[str]:
+        """Phase 2: index with parent/child split.
+
+        Parents go to MongoDB paper_parent_chunks only.
+        Children go to Milvus + ES + MongoDB paper_chunks (with parent_id metadata).
+        """
+        parent_chunks = [c for c in chunks if isinstance(c, dict) and c.get("chunk_type") == "parent"]
+        child_chunks = [c for c in chunks if isinstance(c, dict) and c.get("chunk_type") != "parent"]
+
+        if parent_chunks:
+            await mongodb_service.insert_parent_chunks(paper_id, [
+                {
+                    "parent_id": p.get("parent_id", ""),
+                    "section_path": p.get("section_path"),
+                    "section_anchor": p.get("section_anchor"),
+                    "text": p.get("text", ""),
+                    "child_chunk_indices": (p.get("metadata") or {}).get("child_chunk_indices", []),
+                    "page_range": [
+                        (p.get("metadata") or {}).get("page_start"),
+                        (p.get("metadata") or {}).get("page_end"),
+                    ],
+                }
+                for p in parent_chunks
+            ])
+
+        if not child_chunks:
+            return []
+
+        normalized = []
+        for item in child_chunks:
+            text = str(item.get("text", "") or "")
+            if not text.strip():
+                continue
+            normalized.append(item)
+
+        if not normalized:
+            return []
+
+        texts = [c.get("text", "") for c in normalized]
+        embeddings = self.embed(texts)
+
+        entities = []
+        vector_ids = []
+        chunk_docs = []
+
+        for i, (emb, chunk) in enumerate(zip(embeddings, normalized)):
+            vector_id = f"{paper_id}_{i}"
+            vector_ids.append(vector_id)
+            entities.append({
+                "id": vector_id,
+                "paper_id": paper_id,
+                "chunk_index": i,
+                "project_id": project_id or 0,
+                "vector": emb,
+                "parent_id": chunk.get("parent_id", ""),
+                "section_path": chunk.get("section_path", ""),
+            })
+            chunk_docs.append({
+                "index": i,
+                "text": chunk.get("text", ""),
+                "page_number": chunk.get("page_number"),
+                "metadata": chunk.get("metadata", {}),
+                "parent_id": chunk.get("parent_id"),
+                "section_path": chunk.get("section_path"),
+                "section_anchor": chunk.get("section_anchor"),
+            })
+            self._chunk_cache[f"{paper_id}_{i}"] = chunk.get("text", "")
+
+        await mongodb_service.insert_chunks(paper_id, chunk_docs)
+
+        if self.milvus:
+            try:
+                self.milvus.insert(
+                    collection_name="paper_vectors",
+                    data=entities,
+                )
+            except Exception as e:
+                logger.warning(f"Milvus insert (hierarchical) failed: {e}")
+
+        if self.hybrid_retriever and self.hybrid_retriever.bm25_retriever.client:
+            try:
+                await self.hybrid_retriever.bm25_retriever.index(
+                    paper_id, project_id, chunk_docs
+                )
+                logger.info(f"BM25 index updated (hierarchical) for paper {paper_id}")
+            except Exception as e:
+                logger.warning(f"BM25 indexing (hierarchical) failed: {e}")
+
+        logger.info(
+            f"Indexed paper {paper_id} (hierarchical): "
+            f"{len(parent_chunks)} parents, {len(normalized)} children"
+        )
+        return vector_ids
+
     async def delete_paper_index(self, paper_id: int):
         """删除文献在检索系统中的索引数据"""
+        from app.services.mongodb_service import mongodb_service
+
         if self.milvus:
             try:
                 self.milvus.delete(
@@ -367,6 +474,11 @@ class RAGEngine:
                 await self.hybrid_retriever.delete_paper(paper_id)
             except Exception as e:
                 logger.warning(f"BM25 delete failed for paper {paper_id}: {e}")
+
+        try:
+            await mongodb_service.delete_parent_chunks(paper_id)
+        except Exception as e:
+            logger.warning(f"Parent chunk cleanup failed for paper {paper_id}: {e}")
 
         stale_keys = [k for k in self._chunk_cache.keys() if k.startswith(f"{paper_id}_")]
         for key in stale_keys:
@@ -420,9 +532,13 @@ class RAGEngine:
                             "chunk_index": r.chunk_index,
                             "distance": r.score,
                             "text": r.text,
+                            "parent_id": (r.metadata or {}).get("parent_id"),
+                            "section_path": (r.metadata or {}).get("section_path"),
                             "entity": {
                                 "paper_id": r.paper_id,
                                 "chunk_index": r.chunk_index,
+                                "parent_id": (r.metadata or {}).get("parent_id"),
+                                "section_path": (r.metadata or {}).get("section_path"),
                             }
                         }
                         for r in hybrid_results
@@ -456,7 +572,7 @@ class RAGEngine:
                     data=[query_embedding],
                     limit=top_k,
                     filter=filter_expr,
-                    output_fields=["paper_id", "chunk_index"]
+                    output_fields=["paper_id", "chunk_index", "parent_id", "section_path"]
                 )
                 return results[0] if results else []
             except Exception as e:
@@ -647,7 +763,12 @@ class RAGEngine:
             candidate_docs = filtered_docs if filtered_docs else raw_docs
 
         reranked_docs = await self._rerank(question, candidate_docs, max(top_k * 2, top_k))
-        final_docs = self._diversify_docs_by_paper(reranked_docs, top_k)
+        final_child_docs = self._diversify_docs_by_paper(reranked_docs, top_k)
+
+        if settings.HIERARCHICAL_CHUNKING_ENABLED:
+            final_docs = await self._expand_to_parents(final_child_docs)
+        else:
+            final_docs = final_child_docs
 
         paper_ids_in_docs = sorted(
             {
@@ -918,32 +1039,32 @@ class RAGEngine:
                     "text": chunk.get("text", ""),
                     "page_number": chunk.get("page_number"),
                     "metadata": chunk.get("metadata", {}),
-                    "score": result.get("distance", 0)
+                    "score": result.get("distance", 0),
+                    "parent_id": chunk.get("parent_id"),
+                    "section_path": chunk.get("section_path"),
+                    "section_anchor": chunk.get("section_anchor"),
                 })
             else:
+                fallback_base = {
+                    "paper_id": paper_id,
+                    "chunk_index": chunk_index,
+                    "metadata": {},
+                    "score": result.get("distance", 0),
+                    "parent_id": entity.get("parent_id") or result.get("parent_id"),
+                    "section_path": entity.get("section_path") or result.get("section_path"),
+                    "section_anchor": entity.get("section_anchor") or result.get("section_anchor"),
+                }
                 # 回退1：使用混合检索器返回的内联文本
                 inline_text = result.get("text", "") or entity.get("text", "")
                 if inline_text:
-                    docs.append({
-                        "paper_id": paper_id,
-                        "chunk_index": chunk_index,
-                        "text": inline_text,
-                        "metadata": {},
-                        "score": result.get("distance", 0)
-                    })
+                    docs.append({**fallback_base, "text": inline_text})
                     continue
                 
                 # 回退2：使用内存缓存中的数据
                 cache_key = f"{paper_id}_{chunk_index}"
                 cached_text = self._chunk_cache.get(cache_key, "")
                 if cached_text:
-                    docs.append({
-                        "paper_id": paper_id,
-                        "chunk_index": chunk_index,
-                        "text": cached_text,
-                        "metadata": {},
-                        "score": result.get("distance", 0)
-                    })
+                    docs.append({**fallback_base, "text": cached_text})
                 else:
                     logger.warning(f"Chunk not found: paper_id={paper_id}, chunk_index={chunk_index}")
 
@@ -984,6 +1105,85 @@ class RAGEngine:
         except Exception as e:
             logger.warning(f"Attach paper titles failed: {e}")
     
+    async def _expand_to_parents(self, child_docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Post-filtering parent expansion.
+
+        Groups final child hits by parent_id, batch-fetches parent text from
+        MongoDB, deduplicates, and merges scores.  Each output doc retains
+        child text for citation display and gains parent_text for LLM context.
+        """
+        from app.services.mongodb_service import mongodb_service
+
+        parent_ids = list({
+            d.get("parent_id")
+            for d in child_docs
+            if d.get("parent_id")
+        })
+        if not parent_ids:
+            return child_docs
+
+        parent_map = await mongodb_service.get_parent_chunks_by_ids(parent_ids)
+        if not parent_map:
+            return child_docs
+
+        seen_parents: Dict[str, Dict[str, Any]] = {}
+        expanded: List[Dict[str, Any]] = []
+
+        for doc in child_docs:
+            pid = doc.get("parent_id")
+            parent = parent_map.get(pid) if pid else None
+
+            if not parent:
+                expanded.append(doc)
+                continue
+
+            if pid in seen_parents:
+                prev = seen_parents[pid]
+                siblings = prev.get("sibling_chunk_indices") or []
+                ci = doc.get("chunk_index")
+                if ci is not None and ci not in siblings:
+                    siblings.append(ci)
+                prev["sibling_chunk_indices"] = siblings
+                prev["score"] = max(
+                    float(prev.get("score", 0)),
+                    float(doc.get("score", 0)),
+                )
+                continue
+
+            enriched = {
+                **doc,
+                "parent_text": parent.get("text", ""),
+                "section_path": parent.get("section_path") or doc.get("section_path"),
+                "section_anchor": parent.get("section_anchor") or doc.get("section_anchor"),
+                "sibling_chunk_indices": [doc.get("chunk_index")],
+            }
+            seen_parents[pid] = enriched
+            expanded.append(enriched)
+
+        return expanded
+
+    async def search_enriched(
+        self,
+        query: str,
+        project_id: Optional[int] = None,
+        top_k: int = 5,
+        paper_ids: Optional[List[int]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search with full document enrichment (parent metadata, section info).
+
+        Applies the same parent expansion as the answer path so /rag/search
+        returns sibling_chunk_indices and parent context consistently.
+        """
+        from app.core.config import settings
+
+        raw_results = await self.search(query, project_id, top_k * 2, paper_ids)
+        docs = await self._fetch_documents(raw_results)
+
+        if getattr(settings, "HIERARCHICAL_CHUNKING_ENABLED", False):
+            docs = await self._expand_to_parents(docs)
+
+        return docs[:top_k]
+
     def _build_context(self, docs: List[Dict]) -> str:
         """构建Prompt上下文"""
         context_parts = []
@@ -1029,12 +1229,15 @@ class RAGEngine:
             for i, doc in enumerate(docs, 1):
                 paper_id = doc.get("paper_id")
                 page_number = doc.get("page_number")
+                section = doc.get("section_path", "")
+                section_hint = f", section:{section}" if section else ""
                 source_hint = (
-                    f"(paper:{paper_id}, page:{page_number})"
+                    f"(paper:{paper_id}, page:{page_number}{section_hint})"
                     if page_number
-                    else f"(paper:{paper_id})"
+                    else f"(paper:{paper_id}{section_hint})"
                 )
-                context_parts.append(f"[{i}] {source_hint} {doc.get('text', '')}")
+                display_text = doc.get("parent_text") or doc.get("text", "")
+                context_parts.append(f"[{i}] {source_hint} {display_text}")
         
         return "\n\n".join(context_parts)
 

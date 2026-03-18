@@ -3,8 +3,12 @@ Markdown 后处理器
 
 清洗 MinerU 输出的 Markdown，提取结构化元数据，
 并提供 Markdown → 纯文本转换（用于交给现有 SemanticChunker）。
+
+Phase 2 新增: MarkdownSectionSplitter -- 将 Markdown 切分为带有文本跨度、
+稳定锚点和父子层级的 SectionNode 树，供 HierarchicalChunker 使用。
 """
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -17,6 +21,182 @@ class SectionInfo:
     page_start: int
     page_end: Optional[int] = None
     anchor: Optional[str] = None
+
+
+@dataclass
+class SectionNode:
+    """Hierarchical section representation with text spans and stable anchors."""
+    title: str
+    level: int
+    path: str
+    anchor: str
+    text: str
+    char_start: int
+    char_end: int
+    page_start: int
+    page_end: int
+    children: List["SectionNode"] = field(default_factory=list)
+
+
+def _slugify(text: str, max_len: int = 128) -> str:
+    """Generate a stable, URL-safe slug from a section path."""
+    text = unicodedata.normalize("NFKD", text)
+    text = text.lower()
+    text = re.sub(r"[^\w\s-]", "", text)
+    text = re.sub(r"[\s_>]+", "-", text).strip("-")
+    text = re.sub(r"-{2,}", "-", text)
+    return text[:max_len]
+
+
+class MarkdownSectionSplitter:
+    """Split raw Markdown into a hierarchical SectionNode tree.
+
+    Uses heading regex to find section boundaries, builds a tree based on
+    heading level, and maps headings to page numbers via pre-computed
+    SectionInfo objects (doc.sections) from the parsing stage.
+    """
+
+    _HEADING_RE = re.compile(r"^(#{1,3})\s+(.+)$", re.MULTILINE)
+
+    def split(
+        self,
+        markdown: str,
+        existing_sections: Optional[List[SectionInfo]] = None,
+    ) -> List[SectionNode]:
+        """Parse markdown into a tree of SectionNode objects.
+
+        Args:
+            markdown: full cleaned markdown (doc.raw_markdown).
+            existing_sections: pre-computed SectionInfo list (doc.sections) with
+                correct page numbers. Used for page mapping. If None, all pages
+                default to 1.
+
+        Returns:
+            Flat list of *leaf* SectionNodes (sections with no children).
+            These serve as parent chunk candidates for HierarchicalChunker.
+        """
+        if not markdown or not markdown.strip():
+            return []
+
+        headings = list(self._HEADING_RE.finditer(markdown))
+
+        if not headings:
+            node = SectionNode(
+                title="(document)",
+                level=0,
+                path="(document)",
+                anchor="sec-document",
+                text=markdown,
+                char_start=0,
+                char_end=len(markdown),
+                page_start=1,
+                page_end=1,
+                children=[],
+            )
+            return [node]
+
+        page_map = self._build_page_map(existing_sections)
+
+        raw_sections: List[SectionNode] = []
+        for i, match in enumerate(headings):
+            level = len(match.group(1))
+            title = match.group(2).strip()
+            char_start = match.start()
+            char_end = headings[i + 1].start() if i + 1 < len(headings) else len(markdown)
+            text = markdown[char_start:char_end]
+
+            page_start, page_end = self._lookup_pages(title, level, page_map)
+            raw_sections.append(SectionNode(
+                title=title,
+                level=level,
+                path=title,
+                anchor="",
+                text=text,
+                char_start=char_start,
+                char_end=char_end,
+                page_start=page_start,
+                page_end=page_end,
+                children=[],
+            ))
+
+        root_nodes = self._build_tree(raw_sections)
+        self._assign_paths_and_anchors(root_nodes, prefix="")
+
+        leaves: List[SectionNode] = []
+        self._collect_leaves(root_nodes, leaves)
+        return leaves
+
+    def _build_page_map(
+        self, existing_sections: Optional[List[SectionInfo]]
+    ) -> Dict[str, List[SectionInfo]]:
+        """Create (title_lower, level) -> [SectionInfo, ...] lookup.
+
+        Multiple sections with the same title/level are stored in document
+        order and consumed sequentially via _lookup_pages.
+        """
+        if not existing_sections:
+            return {}
+        mapping: Dict[str, List[SectionInfo]] = {}
+        for sec in existing_sections:
+            key = f"{sec.title.strip().lower()}|{sec.level}"
+            mapping.setdefault(key, []).append(sec)
+        return mapping
+
+    def _lookup_pages(
+        self, title: str, level: int,
+        page_map: Dict[str, List[SectionInfo]],
+    ) -> tuple:
+        key = f"{title.strip().lower()}|{level}"
+        entries = page_map.get(key)
+        if entries:
+            sec = entries.pop(0)
+            return sec.page_start, sec.page_end or sec.page_start
+        return 1, 1
+
+    def _build_tree(self, sections: List[SectionNode]) -> List[SectionNode]:
+        """Stack-based tree builder: lower-level headings nest under higher ones."""
+        root: List[SectionNode] = []
+        stack: List[SectionNode] = []
+
+        for sec in sections:
+            while stack and stack[-1].level >= sec.level:
+                stack.pop()
+
+            if stack:
+                stack[-1].children.append(sec)
+            else:
+                root.append(sec)
+            stack.append(sec)
+
+        return root
+
+    def _assign_paths_and_anchors(
+        self, nodes: List[SectionNode], prefix: str,
+    ) -> None:
+        seen_anchors: Dict[str, int] = {}
+
+        def _walk(current_nodes: List[SectionNode], current_prefix: str) -> None:
+            for node in current_nodes:
+                node.path = (
+                    f"{current_prefix} > {node.title}".strip(" >")
+                    if current_prefix else node.title
+                )
+                base = f"sec-{_slugify(node.path)}"
+                count = seen_anchors.get(base, 0) + 1
+                seen_anchors[base] = count
+                node.anchor = base if count == 1 else f"{base}-{count}"
+                _walk(node.children, node.path)
+
+        _walk(nodes, prefix)
+
+    def _collect_leaves(
+        self, nodes: List[SectionNode], leaves: List[SectionNode]
+    ) -> None:
+        for node in nodes:
+            if node.children:
+                self._collect_leaves(node.children, leaves)
+            else:
+                leaves.append(node)
 
 
 class MarkdownPostProcessor:
@@ -54,8 +234,16 @@ class MarkdownPostProcessor:
         self, markdown: str, pages_info: Optional[List[Dict]] = None
     ) -> List[SectionInfo]:
         """从 Markdown 标题中提取章节列表 (SectionInfo)"""
+        try:
+            from app.core.config import settings
+            populate_anchors = settings.HIERARCHICAL_CHUNKING_ENABLED
+        except Exception:
+            populate_anchors = False
+
         sections: List[SectionInfo] = []
         page_boundaries = self._build_page_boundaries(markdown, pages_info)
+        path_stack: List[tuple] = []
+        seen_anchors: Dict[str, int] = {}
 
         for m in re.finditer(r"^(#{1,3})\s+(.+)$", markdown, re.MULTILINE):
             level = len(m.group(1))
@@ -64,13 +252,26 @@ class MarkdownPostProcessor:
                 continue
             char_pos = m.start()
             page_start = self._char_pos_to_page(char_pos, page_boundaries)
+            anchor: Optional[str] = None
+            if populate_anchors:
+                while path_stack and path_stack[-1][0] >= level:
+                    path_stack.pop()
+                if path_stack:
+                    full_path = f"{path_stack[-1][1]} > {title}"
+                else:
+                    full_path = title
+                path_stack.append((level, full_path))
+                base = f"sec-{_slugify(full_path)}"
+                count = seen_anchors.get(base, 0) + 1
+                seen_anchors[base] = count
+                anchor = base if count == 1 else f"{base}-{count}"
             sections.append(
                 SectionInfo(
                     title=title,
                     level=level,
                     page_start=page_start,
                     page_end=None,
-                    anchor=None,
+                    anchor=anchor,
                 )
             )
 

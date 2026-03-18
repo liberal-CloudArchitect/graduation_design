@@ -97,6 +97,11 @@ class Settings(BaseSettings):
     MINERU_ENABLED: bool = False
     MINERU_API_URL: str = "http://localhost:8010"
     PDF_PARSE_TIMEOUT: int = 120
+
+    # Phase 2: Hierarchical chunking (parent-child document index)
+    HIERARCHICAL_CHUNKING_ENABLED: bool = False
+    PARENT_CHUNK_MAX_TOKENS: int = 2000
+    CHILD_CHUNK_MAX_TOKENS: int = 400
     
     class Config:
         env_file = ".env"

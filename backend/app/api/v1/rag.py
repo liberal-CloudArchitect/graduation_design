@@ -33,9 +33,9 @@ class QuestionRequest(BaseModel):
 class ReferenceItem(BaseModel):
     """引用项"""
     paper_id: int
-    paper_title: Optional[str]
+    paper_title: Optional[str] = None
     chunk_index: int
-    page_number: Optional[int]
+    page_number: Optional[int] = None
     text: str
     score: float
     display_score: Optional[float] = None
@@ -43,6 +43,11 @@ class ReferenceItem(BaseModel):
     citation_context: Optional[str] = None
     citation_number: Optional[int] = None
     citation_spans: Optional[List[Dict]] = None
+    # Phase 2: hierarchical chunking fields
+    parent_id: Optional[str] = None
+    section_path: Optional[str] = None
+    section_anchor: Optional[str] = None
+    sibling_chunk_indices: Optional[List[int]] = None
 
 
 class AnswerResponse(BaseModel):
@@ -110,6 +115,27 @@ async def _enrich_references_with_titles(
             ref = {**ref, "title": title, "paper_title": title}
         enriched.append(ref)
     return enriched
+
+
+def _ref_dict_to_item(ref: dict) -> ReferenceItem:
+    """Convert a reference dict to a ReferenceItem, handling Phase 2 fields."""
+    return ReferenceItem(
+        paper_id=ref.get("paper_id", 0),
+        paper_title=ref.get("paper_title") or ref.get("title"),
+        chunk_index=ref.get("chunk_index", 0),
+        page_number=ref.get("page_number"),
+        text=ref.get("text", ""),
+        score=ref.get("score", 0),
+        display_score=ref.get("display_score"),
+        raw_score=ref.get("raw_score"),
+        citation_context=ref.get("citation_context"),
+        citation_number=ref.get("citation_number"),
+        citation_spans=ref.get("citation_spans"),
+        parent_id=ref.get("parent_id"),
+        section_path=ref.get("section_path"),
+        section_anchor=ref.get("section_anchor"),
+        sibling_chunk_indices=ref.get("sibling_chunk_indices"),
+    )
 
 
 async def _validate_requested_paper_ids(
@@ -225,22 +251,7 @@ async def ask_question(
     await db.commit()
     await db.refresh(conversation)
     
-    # 构建引用
-    references = []
-    for ref in enriched_refs:
-        references.append(ReferenceItem(
-            paper_id=ref.get("paper_id", 0),
-            paper_title=ref.get("title"),
-            chunk_index=ref.get("chunk_index", 0),
-            page_number=ref.get("page_number"),
-            text=ref.get("text", ""),
-            score=ref.get("score", 0),
-            display_score=ref.get("display_score"),
-            raw_score=ref.get("raw_score"),
-            citation_context=ref.get("citation_context"),
-            citation_number=ref.get("citation_number"),
-            citation_spans=ref.get("citation_spans"),
-        ))
+    references = [_ref_dict_to_item(ref) for ref in enriched_refs]
     
     return AnswerResponse(
         answer=result["answer"],
@@ -282,7 +293,7 @@ async def search_documents(
     )
 
     try:
-        raw_refs = await rag_engine.search(
+        raw_refs = await rag_engine.search_enriched(
             query=request.question,
             project_id=request.project_id,
             top_k=request.top_k,
@@ -296,22 +307,7 @@ async def search_documents(
         )
 
     enriched_refs = await _enrich_references_with_titles(db, raw_refs)
-    references = [
-        ReferenceItem(
-            paper_id=ref.get("paper_id", 0),
-            paper_title=ref.get("paper_title") or ref.get("title"),
-            chunk_index=ref.get("chunk_index", 0),
-            page_number=ref.get("page_number"),
-            text=ref.get("text", ""),
-            score=ref.get("score", 0),
-            display_score=ref.get("display_score"),
-            raw_score=ref.get("raw_score"),
-            citation_context=ref.get("citation_context"),
-            citation_number=ref.get("citation_number"),
-            citation_spans=ref.get("citation_spans"),
-        )
-        for ref in enriched_refs
-    ]
+    references = [_ref_dict_to_item(ref) for ref in enriched_refs]
     return SearchResponse(references=references, method="retrieval")
 
 
@@ -402,19 +398,7 @@ async def list_conversations(
                     role=msg["role"],
                     content=msg["content"],
                     references=[
-                        ReferenceItem(
-                            paper_id=ref.get("paper_id", 0),
-                            paper_title=ref.get("paper_title") or ref.get("title"),
-                            chunk_index=ref.get("chunk_index", 0),
-                            page_number=ref.get("page_number"),
-                            text=ref.get("text", ""),
-                            score=ref.get("score", 0),
-                            display_score=ref.get("display_score"),
-                            raw_score=ref.get("raw_score"),
-                            citation_context=ref.get("citation_context"),
-                            citation_number=ref.get("citation_number"),
-                            citation_spans=ref.get("citation_spans"),
-                        )
+                        _ref_dict_to_item(ref)
                         for ref in (msg.get("references") or [])
                         if isinstance(ref, dict)
                     ] or None,
@@ -475,19 +459,7 @@ async def get_conversation(
                 role=msg["role"],
                 content=msg["content"],
                 references=[
-                    ReferenceItem(
-                        paper_id=ref.get("paper_id", 0),
-                        paper_title=ref.get("paper_title") or ref.get("title"),
-                        chunk_index=ref.get("chunk_index", 0),
-                        page_number=ref.get("page_number"),
-                        text=ref.get("text", ""),
-                        score=ref.get("score", 0),
-                        display_score=ref.get("display_score"),
-                        raw_score=ref.get("raw_score"),
-                        citation_context=ref.get("citation_context"),
-                        citation_number=ref.get("citation_number"),
-                        citation_spans=ref.get("citation_spans"),
-                    )
+                    _ref_dict_to_item(ref)
                     for ref in (msg.get("references") or [])
                     if isinstance(ref, dict)
                 ] or None,
