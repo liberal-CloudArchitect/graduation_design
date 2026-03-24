@@ -10,6 +10,12 @@ Phase 1 验收测试 — MinerU PDF 解析集成
   6. 现有 API 接口行为兼容
 
 运行: python backend/tests/test_phase1_acceptance.py
+
+常用环境变量:
+  MINERU_URL / MINERU_API_URL  优先级最高，直接指定完整服务地址
+  MINERU_HOST / MINERU_PORT     未提供完整 URL 时拼接服务地址
+  MINERU_SCHEME                 默认 http
+  MINERU_API_KEY                可选 Bearer token
 """
 
 import asyncio
@@ -28,10 +34,33 @@ import httpx
 # Configuration
 # ---------------------------------------------------------------------------
 
-MINERU_BASE_URL = os.getenv("MINERU_URL", "http://192.168.0.87:8010")
+def resolve_mineru_base_url() -> str:
+    """Resolve MinerU service URL from environment without hardcoding a host."""
+    explicit = os.getenv("MINERU_URL") or os.getenv("MINERU_API_URL")
+    if explicit:
+        return explicit.rstrip("/")
+
+    host = os.getenv("MINERU_HOST", "127.0.0.1")
+    port = os.getenv("MINERU_PORT", "8010")
+    scheme = os.getenv("MINERU_SCHEME", "http")
+    return f"{scheme}://{host}:{port}".rstrip("/")
+
+
+MINERU_BASE_URL = resolve_mineru_base_url()
 MINERU_API_KEY = os.getenv("MINERU_API_KEY", "")
 
 TEST_DOC_DIR = Path(__file__).parent / "test_doc"
+OUTPUT_JSON = os.getenv(
+    "PHASE1_OUTPUT_JSON",
+    str(Path(__file__).parent / "phase1_acceptance_results.json"),
+)
+TEST_CATEGORIES = {
+    item.strip()
+    for item in os.getenv("TEST_CATEGORIES", "").split(",")
+    if item.strip()
+}
+TEST_NAME_FILTER = os.getenv("TEST_NAME_FILTER", "").strip().lower()
+MAX_TEST_PDFS = int(os.getenv("MAX_TEST_PDFS", "0"))
 
 TIMEOUT_PARSE = 180  # seconds per PDF
 TIMEOUT_HEALTH = 10
@@ -85,6 +114,19 @@ def discover_test_pdfs() -> List[TestPDF]:
                 category="simple",
                 description=f.stem,
             ))
+
+    if TEST_CATEGORIES:
+        pdfs = [pdf for pdf in pdfs if pdf.category in TEST_CATEGORIES]
+
+    if TEST_NAME_FILTER:
+        pdfs = [
+            pdf for pdf in pdfs
+            if TEST_NAME_FILTER in pdf.description.lower()
+            or TEST_NAME_FILTER in Path(pdf.path).name.lower()
+        ]
+
+    if MAX_TEST_PDFS > 0:
+        pdfs = pdfs[:MAX_TEST_PDFS]
 
     return pdfs
 
@@ -323,10 +365,20 @@ async def run_all_tests():
     print_header("Phase 1 验收测试 — MinerU PDF 解析集成")
     print(f"MinerU Service: {MINERU_BASE_URL}")
     print(f"Test PDFs found: {len(test_pdfs)}")
+    if TEST_CATEGORIES:
+        print(f"Category filter: {sorted(TEST_CATEGORIES)}")
+    if TEST_NAME_FILTER:
+        print(f"Name filter: {TEST_NAME_FILTER}")
+    if MAX_TEST_PDFS > 0:
+        print(f"Max PDFs: {MAX_TEST_PDFS}")
     for cat in ("dual_column", "formula_heavy", "table_heavy", "scan", "simple"):
         cnt = sum(1 for p in test_pdfs if p.category == cat)
         if cnt:
             print(f"  {cat}: {cnt} files")
+
+    if not test_pdfs:
+        print("\n  No PDFs matched the current filters. Aborting.")
+        return
 
     # -----------------------------------------------------------------------
     # Test 1: Health Check
@@ -340,7 +392,13 @@ async def run_all_tests():
         print(f"  Model Loaded:     {health.get('model_loaded')}")
         print(f"  GPU Total MB:     {health.get('gpu_memory_total_mb')}")
         print(f"  GPU Used MB:      {health.get('gpu_memory_used_mb')}")
+        print(f"  GPU Free MB:      {health.get('gpu_memory_free_mb')}")
+        print(f"  Pipeline Device:  {health.get('pipeline_device')}")
+        print(f"  Active Jobs:      {health.get('active_jobs')}")
+        print(f"  Waiting Jobs:     {health.get('waiting_jobs')}")
+        print(f"  Max Concurrent:   {health.get('max_concurrent')}")
         print(f"  vLLM Healthy:     {health.get('vllm_healthy')}")
+        print(f"  vLLM URL:         {health.get('vllm_server_url')}")
         print(f"  Parser Version:   {health.get('parser_version', 'N/A')}")
         print(f"  Backend Error:    {health.get('backend_error', 'None')}")
         health_ok = health.get("status") == "ok"
@@ -606,10 +664,16 @@ async def run_all_tests():
         )
 
     # Save results to JSON
-    output_path = Path(__file__).parent / "phase1_acceptance_results.json"
+    output_path = Path(OUTPUT_JSON)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_data = {
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "mineru_url": MINERU_BASE_URL,
+        "filters": {
+            "categories": sorted(TEST_CATEGORIES),
+            "name_filter": TEST_NAME_FILTER,
+            "max_test_pdfs": MAX_TEST_PDFS,
+        },
         "summary": {
             "total_pdfs": total_attempted,
             "parse_success": total_parsed,

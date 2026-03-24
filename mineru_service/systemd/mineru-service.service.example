@@ -1,0 +1,19 @@
+[Unit]
+Description=MinerU PDF Parse Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mineru
+Group=mineru
+WorkingDirectory=/opt/mineru_service
+EnvironmentFile=-/etc/mineru_service/mineru_service.env
+ExecStart=/bin/bash /opt/mineru_service/start_native.sh
+Restart=always
+RestartSec=10
+TimeoutStartSec=0
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

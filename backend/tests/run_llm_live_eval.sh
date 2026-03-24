@@ -5,7 +5,10 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
 API="$BASE_URL/api/v1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PDF_DIR="$BACKEND_DIR/tests/test_doc"
+PDF_ROOT="${PDF_ROOT:-$BACKEND_DIR/tests/test_doc}"
+PDF_NAME_FILTER="${PDF_NAME_FILTER:-}"
+MAX_PDFS="${MAX_PDFS:-0}"
+CLEANUP_PROJECT="${CLEANUP_PROJECT:-0}"
 TS="$(date +%Y%m%d_%H%M%S)"
 OUT_DIR="$BACKEND_DIR/tests/llm_eval_results/$TS"
 
@@ -22,6 +25,7 @@ require_cmd() {
 
 require_cmd curl
 require_cmd jq
+require_cmd find
 
 save_request() {
   local name="$1"
@@ -109,8 +113,33 @@ echo "[INFO] project id: $PROJECT_ID"
 
 PAPER_IDS=()
 mkdir -p "$OUT_DIR/staged_pdfs"
+mapfile -t PDF_FILES < <(find "$PDF_ROOT" -type f -name '*.pdf' | LC_ALL=C sort)
+
+if [[ -n "$PDF_NAME_FILTER" ]]; then
+  FILTERED=()
+  for pdf in "${PDF_FILES[@]}"; do
+    base="$(basename "$pdf")"
+    if [[ "$base" == *"$PDF_NAME_FILTER"* ]]; then
+      FILTERED+=("$pdf")
+    fi
+  done
+  PDF_FILES=("${FILTERED[@]}")
+fi
+
+if [[ "$MAX_PDFS" =~ ^[0-9]+$ ]] && (( MAX_PDFS > 0 )) && (( ${#PDF_FILES[@]} > MAX_PDFS )); then
+  PDF_FILES=("${PDF_FILES[@]:0:MAX_PDFS}")
+fi
+
+echo "[INFO] pdf root: $PDF_ROOT"
+echo "[INFO] pdf count: ${#PDF_FILES[@]}"
+
+if [[ ${#PDF_FILES[@]} -eq 0 ]]; then
+  echo "[ERROR] no pdf files found under $PDF_ROOT" >&2
+  exit 1
+fi
+
 idx=0
-for pdf in "$PDF_DIR"/*.pdf; do
+for pdf in "${PDF_FILES[@]}"; do
   idx=$((idx + 1))
   base="$(basename "$pdf")"
   staged_pdf="$OUT_DIR/staged_pdfs/paper_${idx}.pdf"
@@ -264,14 +293,26 @@ get_json "rag_conversations_count" "/rag/conversations/count"
 get_json "memory_stats" "/memory/stats?project_id=$PROJECT_ID"
 get_json "memory_list" "/memory/list?project_id=$PROJECT_ID&limit=50"
 
+if [[ "$CLEANUP_PROJECT" == "1" || "$CLEANUP_PROJECT" == "true" ]]; then
+  echo "[INFO] cleanup project: $PROJECT_ID"
+  curl -sS --max-time 60 \
+    -X DELETE "$API/projects/$PROJECT_ID" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    > "$OUT_DIR/responses/project_delete.json" || true
+fi
+
 jq -n \
   --arg out_dir "$OUT_DIR" \
   --arg ts "$TS" \
   --arg email "$EMAIL" \
   --arg username "$USERNAME" \
   --argjson project_id "$PROJECT_ID" \
+  --arg pdf_root "$PDF_ROOT" \
+  --arg pdf_name_filter "$PDF_NAME_FILTER" \
+  --argjson max_pdfs "${MAX_PDFS:-0}" \
+  --arg cleanup_project "$CLEANUP_PROJECT" \
   --argjson paper_ids "$(printf '%s\n' "${PAPER_IDS[@]}" | jq -R . | jq -s 'map(tonumber)')" \
-  '{timestamp:$ts,out_dir:$out_dir,test_user:{email:$email,username:$username},project_id:$project_id,paper_ids:$paper_ids}' \
+  '{timestamp:$ts,out_dir:$out_dir,test_user:{email:$email,username:$username},project_id:$project_id,paper_ids:$paper_ids,pdf_root:$pdf_root,pdf_name_filter:$pdf_name_filter,max_pdfs:$max_pdfs,cleanup_project:$cleanup_project}' \
   > "$OUT_DIR/run_meta.json"
 
 echo "[DONE] live eval completed"

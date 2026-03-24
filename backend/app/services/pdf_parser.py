@@ -548,6 +548,7 @@ class PDFParser:
         self._mineru_client = MinerUClient(
             base_url=settings.MINERU_API_URL,
             timeout=settings.PDF_PARSE_TIMEOUT,
+            api_key=settings.MINERU_API_KEY,
         )
         self._markdown_processor = MarkdownPostProcessor()
         self._sanity_gate = ParseSanityGate()

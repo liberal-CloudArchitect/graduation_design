@@ -96,7 +96,8 @@ class Settings(BaseSettings):
     # Phase 1: MinerU 解析 (仅对复杂 PDF 生效, 简单 PDF 继续走现有管线)
     MINERU_ENABLED: bool = False
     MINERU_API_URL: str = "http://localhost:8010"
-    PDF_PARSE_TIMEOUT: int = 120
+    MINERU_API_KEY: str = ""
+    PDF_PARSE_TIMEOUT: int = 600
 
     # Phase 2: Hierarchical chunking (parent-child document index)
     HIERARCHICAL_CHUNKING_ENABLED: bool = False

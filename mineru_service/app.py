@@ -2,12 +2,12 @@
 MinerU PDF 解析服务 -- FastAPI wrapper
 
 独立于主后端，通过 HTTP 提供 PDF → Markdown 解析能力。
-部署到 4090 服务器，主后端通过 MinerUClient 调用。
+部署到 GPU 服务器 (Docker)，主后端通过 MinerUClient 调用。
 
-解析后端优先级:
-  1. official mineru package — 需要 GPU
-  2. legacy magic-pdf package — 兼容旧镜像
-  3. PyMuPDF 结构化提取 — CPU 回退
+三级降级策略:
+  Tier 1: hybrid-http-client — VLM (vLLM GPU) + pipeline 模型 (CPU/GPU)
+  Tier 2: pipeline-only      — 仅 pipeline 模型，不调用 VLM
+  Tier 3: PyMuPDF             — 纯 CPU 文本提取
 """
 import asyncio
 import os
@@ -24,8 +24,11 @@ from fastapi.responses import JSONResponse
 import config
 
 _semaphore: Optional[asyncio.Semaphore] = None
+_state_lock: Optional[asyncio.Lock] = None
 _backend = "none"  # "mineru_official" | "magic_pdf_legacy" | "pymupdf"
 _backend_error: Optional[str] = None
+_active_jobs = 0
+_waiting_jobs = 0
 
 
 def _release_gpu_cache():
@@ -35,9 +38,39 @@ def _release_gpu_cache():
         gc.collect()
         import torch
         if torch.cuda.is_available():
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
     except Exception:
         pass
+
+
+def _configure_pipeline_device():
+    """Update magic-pdf.json so pipeline models run on the configured device.
+
+    When PIPELINE_DEVICE=cpu, layout/OCR/formula/table models use system RAM
+    instead of GPU VRAM, leaving the GPU exclusively for vLLM.
+    """
+    import json as _json
+
+    config_path = os.path.expanduser("~/magic-pdf.json")
+    if not os.path.exists(config_path):
+        print(f"[startup] magic-pdf.json not found at {config_path}, skipping device config")
+        return
+
+    try:
+        with open(config_path) as f:
+            cfg = _json.load(f)
+        current = cfg.get("device-mode", "unknown")
+        target = config.PIPELINE_DEVICE
+        if current != target:
+            cfg["device-mode"] = target
+            with open(config_path, "w") as f:
+                _json.dump(cfg, f, indent=2)
+            print(f"[startup] pipeline device-mode: {current} -> {target}")
+        else:
+            print(f"[startup] pipeline device-mode: {current} (unchanged)")
+    except Exception as e:
+        print(f"[startup] WARNING: failed to update magic-pdf.json: {e}")
 
 
 def _load_model() -> str:
@@ -76,8 +109,10 @@ def _load_model() -> str:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _semaphore
+    global _semaphore, _state_lock
     _semaphore = asyncio.Semaphore(config.MAX_CONCURRENT)
+    _state_lock = asyncio.Lock()
+    _configure_pipeline_device()
     _load_model()
     yield
 
@@ -93,12 +128,110 @@ def _verify_api_key(request: Request):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def _is_cuda_oom_error(exc: Exception) -> bool:
+    message = f"{type(exc).__name__}: {exc}".lower()
+    return any(
+        token in message
+        for token in (
+            "cuda out of memory",
+            "outofmemoryerror",
+            "cublas_status_alloc_failed",
+            "cuda error: out of memory",
+            "hip out of memory",
+        )
+    )
+
+
+_RECOVERABLE_ERROR_TOKENS = (
+    # VLM / vLLM connection failures
+    "connection attempts failed",
+    "connection refused",
+    "connection reset",
+    "server disconnected",
+    "remoteprotocolerror",
+    "connecterror",
+    "readtimeout",
+    "writetimeout",
+    "connectionerror",
+    "httpcore",
+    # MinerU / magic-pdf internal errors
+    "mineru",
+    "magic_pdf",
+    "magic-pdf",
+    "unipipe",
+    "doc_analyze",
+    "libs.commons",
+    # Generic CUDA/GPU errors (non-OOM ones are also recoverable)
+    "cuda error",
+    "cudnn error",
+    "nccl error",
+    "device-side assert",
+)
+
+
+def _is_recoverable_parse_error(exc: Exception) -> bool:
+    """Return True if *exc* should trigger fallback to a simpler backend."""
+    msg = f"{type(exc).__name__}: {exc}".lower()
+    return any(token in msg for token in _RECOVERABLE_ERROR_TOKENS)
+
+
+def _check_vllm_health_sync() -> bool:
+    """Quick sync probe — is the vLLM server still responding?"""
+    if not config.MINERU_SERVER_URL:
+        return False
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"{config.MINERU_SERVER_URL}/health", method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def _current_gpu_memory() -> Dict[str, int]:
+    info = {
+        "total_mb": 0,
+        "used_mb": 0,
+        "free_mb": 0,
+    }
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            free, total = torch.cuda.mem_get_info()
+            info["total_mb"] = int(total / 1024 / 1024)
+            info["free_mb"] = int(free / 1024 / 1024)
+            info["used_mb"] = int((total - free) / 1024 / 1024)
+    except Exception:
+        pass
+    return info
+
+
+def _should_fallback_to_cpu_due_to_gpu_pressure() -> Optional[str]:
+    if not config.GPU_PRESSURE_CPU_FALLBACK:
+        return None
+    if _backend == "pymupdf":
+        return None
+
+    gpu = _current_gpu_memory()
+    if gpu["total_mb"] <= 0:
+        return None
+    if gpu["free_mb"] < config.GPU_MIN_FREE_MB:
+        return (
+            f"gpu_pressure_free_{gpu['free_mb']}mb_below_{config.GPU_MIN_FREE_MB}mb"
+        )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Official MinerU 解析
 # ---------------------------------------------------------------------------
 
-def _resolve_parse_dir(output_dir: str, pdf_name: str) -> str:
-    backend = config.MINERU_BACKEND
+def _resolve_parse_dir(output_dir: str, pdf_name: str, backend: str | None = None) -> str:
+    if backend is None:
+        backend = config.MINERU_BACKEND
     if backend == "pipeline":
         subdir = config.MINERU_PARSE_METHOD
     elif backend.startswith("vlm-"):
@@ -167,10 +300,13 @@ def _pages_from_content_list(content_list: List[Dict[str, Any]], page_count: int
     return pages_output
 
 
-def _parse_with_official_mineru(pdf_bytes: bytes) -> dict:
-    """使用官方 mineru 包进行解析。"""
+def _parse_with_official_mineru(pdf_bytes: bytes, backend: str | None = None) -> dict:
+    """使用官方 mineru 包进行解析。*backend* 可覆盖 config 默认值。"""
     from mineru.cli.common import do_parse
     from mineru.version import __version__
+
+    if backend is None:
+        backend = config.MINERU_BACKEND
 
     with tempfile.TemporaryDirectory() as tmpdir:
         pdf_name = "input"
@@ -178,7 +314,7 @@ def _parse_with_official_mineru(pdf_bytes: bytes) -> dict:
         os.makedirs(output_dir, exist_ok=True)
 
         parse_kwargs: Dict[str, Any] = {}
-        if config.MINERU_SERVER_URL:
+        if config.MINERU_SERVER_URL and "hybrid" in backend:
             parse_kwargs["server_url"] = config.MINERU_SERVER_URL
 
         do_parse(
@@ -186,7 +322,7 @@ def _parse_with_official_mineru(pdf_bytes: bytes) -> dict:
             pdf_file_names=[pdf_name],
             pdf_bytes_list=[pdf_bytes],
             p_lang_list=[config.MINERU_LANG],
-            backend=config.MINERU_BACKEND,
+            backend=backend,
             parse_method=config.MINERU_PARSE_METHOD,
             formula_enable=True,
             table_enable=True,
@@ -200,7 +336,7 @@ def _parse_with_official_mineru(pdf_bytes: bytes) -> dict:
             **parse_kwargs,
         )
 
-        parse_dir = _resolve_parse_dir(output_dir, pdf_name)
+        parse_dir = _resolve_parse_dir(output_dir, pdf_name, backend)
         markdown_path = os.path.join(parse_dir, f"{pdf_name}.md")
         content_list_path = os.path.join(parse_dir, f"{pdf_name}_content_list.json")
 
@@ -396,55 +532,71 @@ def _extract_metadata_from_markdown(markdown: str) -> dict:
 
 
 def _dispatch_parse(pdf_bytes: bytes) -> dict:
-    """根据加载的后端选择解析方法"""
+    """Three-tier fallback: hybrid → pipeline-only → PyMuPDF.
+
+    Unlike the old implementation this does NOT permanently downgrade
+    ``_backend`` for transient VLM failures.  Each request starts from
+    the best available tier so that a recovered vLLM server is used
+    immediately.
+    """
     global _backend, _backend_error
+
     if _backend == "mineru_official":
-        try:
-            return _parse_with_official_mineru(pdf_bytes)
-        except Exception as e:
-            msg = f"{type(e).__name__}: {e}"
-            if any(
-                token in msg
-                for token in (
-                    "mineru",
-                    "magic_pdf",
-                    "magic-pdf",
-                    "UNIPipe",
-                    "doc_analyze",
-                    "libs.commons",
+        configured = config.MINERU_BACKEND  # e.g. "hybrid-http-client"
+        is_hybrid = "hybrid" in configured
+
+        # -- Tier 1: configured backend (hybrid-http-client) ---------------
+        # Quick-check: if vLLM is known dead, skip straight to tier 2.
+        if is_hybrid and not _check_vllm_health_sync():
+            print("[fallback] vLLM server unreachable, skipping tier-1")
+        else:
+            try:
+                return _parse_with_official_mineru(pdf_bytes)
+            except Exception as e:
+                tier1_err = f"{type(e).__name__}: {e}"
+                recoverable = (
+                    _is_recoverable_parse_error(e) or _is_cuda_oom_error(e)
                 )
-            ):
-                _backend = "pymupdf"
-                _backend_error = msg
-                print(
-                    "[runtime] official mineru parse path failed, "
-                    f"switching to PyMuPDF fallback: {msg}"
+                if not recoverable:
+                    raise
+                print(f"[fallback] tier-1 ({configured}) failed: {tier1_err}")
+                _release_gpu_cache()
+
+        # -- Tier 2: pipeline-only (MinerU without VLM) --------------------
+        if config.PIPELINE_FALLBACK_ENABLED and is_hybrid:
+            try:
+                print("[fallback] trying tier-2: pipeline-only backend")
+                result = _parse_with_official_mineru(
+                    pdf_bytes, backend="pipeline",
                 )
-                return _parse_with_pymupdf(pdf_bytes)
-            raise
+                result["metadata"]["fallback_reason"] = "vlm_unavailable_pipeline"
+                return result
+            except Exception as e2:
+                print(f"[fallback] tier-2 (pipeline) failed: {e2}")
+                _release_gpu_cache()
+
+        # -- Tier 3: PyMuPDF CPU extraction --------------------------------
+        print("[fallback] tier-3: PyMuPDF CPU extraction")
+        _backend_error = "all_gpu_backends_failed"
+        result = _parse_with_pymupdf(pdf_bytes)
+        result["metadata"]["fallback_reason"] = "all_backends_failed_pymupdf"
+        return result
+
     if _backend == "magic_pdf_legacy":
         try:
             return _parse_with_legacy_magic_pdf(pdf_bytes)
         except Exception as e:
-            msg = f"{type(e).__name__}: {e}"
-            if any(
-                token in msg
-                for token in (
-                    "magic_pdf",
-                    "magic-pdf",
-                    "UNIPipe",
-                    "doc_analyze",
-                    "libs.commons",
-                )
-            ):
+            if _is_recoverable_parse_error(e) or _is_cuda_oom_error(e):
                 _backend = "pymupdf"
-                _backend_error = msg
+                _backend_error = f"{type(e).__name__}: {e}"
                 print(
-                    "[runtime] legacy magic-pdf parse path failed, "
-                    f"switching to PyMuPDF fallback: {msg}"
+                    "[fallback] magic-pdf failed, using PyMuPDF: "
+                    f"{_backend_error}"
                 )
+                _release_gpu_cache()
                 return _parse_with_pymupdf(pdf_bytes)
             raise
+
     return _parse_with_pymupdf(pdf_bytes)
 
 
@@ -454,16 +606,7 @@ def _dispatch_parse(pdf_bytes: bytes) -> dict:
 
 @app.get("/health")
 async def health():
-    gpu_mem = 0
-    gpu_used = 0
-    try:
-        import torch
-        if torch.cuda.is_available():
-            free, total = torch.cuda.mem_get_info()
-            gpu_mem = int(total / 1024 / 1024)
-            gpu_used = int((total - free) / 1024 / 1024)
-    except ImportError:
-        pass
+    gpu = _current_gpu_memory()
 
     vllm_healthy = False
     if config.MINERU_SERVER_URL:
@@ -482,8 +625,17 @@ async def health():
         "configured_backend": config.MINERU_BACKEND,
         "configured_lang": config.MINERU_LANG,
         "model_source": config.MINERU_MODEL_SOURCE,
-        "gpu_memory_total_mb": gpu_mem,
-        "gpu_memory_used_mb": gpu_used,
+        "pipeline_device": config.PIPELINE_DEVICE,
+        "pipeline_fallback_enabled": config.PIPELINE_FALLBACK_ENABLED,
+        "gpu_memory_total_mb": gpu["total_mb"],
+        "gpu_memory_used_mb": gpu["used_mb"],
+        "gpu_memory_free_mb": gpu["free_mb"],
+        "active_jobs": _active_jobs,
+        "waiting_jobs": _waiting_jobs,
+        "max_concurrent": config.MAX_CONCURRENT,
+        "max_queue_size": config.MAX_QUEUE_SIZE,
+        "cpu_overflow_fallback": config.ENABLE_CPU_OVERFLOW_FALLBACK,
+        "gpu_min_free_mb": config.GPU_MIN_FREE_MB,
         "vllm_server_url": config.MINERU_SERVER_URL or None,
         "vllm_healthy": vllm_healthy,
         "backend_error": _backend_error,
@@ -492,6 +644,7 @@ async def health():
 
 @app.post("/parse")
 async def parse_pdf(request: Request, file: UploadFile = File(...)):
+    global _active_jobs, _waiting_jobs
     _verify_api_key(request)
 
     content = await file.read()
@@ -502,21 +655,80 @@ async def parse_pdf(request: Request, file: UploadFile = File(...)):
             detail=f"File too large: {file_size_mb:.1f}MB > {config.MAX_FILE_SIZE_MB}MB limit",
         )
 
-    if not _semaphore._value and _semaphore.locked():
-        raise HTTPException(status_code=503, detail="Service busy, all slots occupied")
+    if _semaphore is None or _state_lock is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    queued = False
+    acquired_slot = False
+    overflow_to_cpu = False
+
+    async with _state_lock:
+        if _active_jobs >= config.MAX_CONCURRENT or _semaphore.locked():
+            if config.MAX_QUEUE_SIZE >= 0 and _waiting_jobs >= config.MAX_QUEUE_SIZE:
+                overflow_to_cpu = config.ENABLE_CPU_OVERFLOW_FALLBACK
+                if not overflow_to_cpu:
+                    raise HTTPException(
+                        status_code=503,
+                        detail=(
+                            "Service busy, queue is full; "
+                            "increase MAX_QUEUE_SIZE or enable CPU overflow fallback"
+                        ),
+                    )
+            else:
+                _waiting_jobs += 1
+                queued = True
 
     try:
-        async with _semaphore:
-            start = time.time()
+        start = time.time()
+
+        if overflow_to_cpu:
             result = await asyncio.wait_for(
                 asyncio.get_event_loop().run_in_executor(
-                    None, _dispatch_parse, content
+                    None, _parse_with_pymupdf, content
                 ),
                 timeout=config.TASK_TIMEOUT_SEC,
             )
+            result["metadata"]["fallback_reason"] = "queue_full_cpu_fallback"
+            result["metadata"]["queue_overflow"] = True
             result["elapsed_ms"] = int((time.time() - start) * 1000)
-            _release_gpu_cache()
             return JSONResponse(content=result)
+
+        await _semaphore.acquire()
+        acquired_slot = True
+
+        async with _state_lock:
+            if queued and _waiting_jobs > 0:
+                _waiting_jobs -= 1
+            _active_jobs += 1
+
+        fallback_reason = _should_fallback_to_cpu_due_to_gpu_pressure()
+        parse_target = _parse_with_pymupdf if fallback_reason else _dispatch_parse
+
+        try:
+            result = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None, parse_target, content
+                ),
+                timeout=config.TASK_TIMEOUT_SEC,
+            )
+            if fallback_reason:
+                result["metadata"]["fallback_reason"] = fallback_reason
+        except Exception as e:
+            if config.CUDA_OOM_CPU_FALLBACK and _is_cuda_oom_error(e):
+                _release_gpu_cache()
+                result = await asyncio.wait_for(
+                    asyncio.get_event_loop().run_in_executor(
+                        None, _parse_with_pymupdf, content
+                    ),
+                    timeout=config.TASK_TIMEOUT_SEC,
+                )
+                result["metadata"]["fallback_reason"] = "cuda_oom_cpu_fallback"
+            else:
+                raise
+
+        result["elapsed_ms"] = int((time.time() - start) * 1000)
+        _release_gpu_cache()
+        return JSONResponse(content=result)
     except asyncio.TimeoutError:
         _release_gpu_cache()
         raise HTTPException(status_code=504, detail="Parse timeout")
@@ -526,6 +738,16 @@ async def parse_pdf(request: Request, file: UploadFile = File(...)):
     except Exception as e:
         _release_gpu_cache()
         raise HTTPException(status_code=400, detail=f"Parse failed: {str(e)}")
+    finally:
+        if acquired_slot:
+            async with _state_lock:
+                if _active_jobs > 0:
+                    _active_jobs -= 1
+            _semaphore.release()
+        elif queued:
+            async with _state_lock:
+                if _waiting_jobs > 0:
+                    _waiting_jobs -= 1
 
 
 if __name__ == "__main__":

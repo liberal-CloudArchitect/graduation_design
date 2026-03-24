@@ -44,7 +44,7 @@ COPY requirements.txt .
 RUN python3 -m pip install --no-cache-dir -r requirements.txt --break-system-packages
 
 COPY . .
-RUN chmod +x /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh /app/start_service.sh /app/start_linux.sh
 
 EXPOSE 8010
 
