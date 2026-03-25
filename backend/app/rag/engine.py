@@ -1170,20 +1170,19 @@ class RAGEngine:
         top_k: int = 5,
         paper_ids: Optional[List[int]] = None,
     ) -> List[Dict[str, Any]]:
-        """Search with full document enrichment (parent metadata, section info).
+        """Search with the same evidence pipeline used by answer().
 
-        Applies the same parent expansion as the answer path so /rag/search
-        returns sibling_chunk_indices and parent context consistently.
+        /rag/search should not diverge from /rag/ask in phase 2.  The only
+        intentional difference is that search skips memory retrieval.
         """
-        from app.core.config import settings
-
-        raw_results = await self.search(query, project_id, top_k * 2, paper_ids)
-        docs = await self._fetch_documents(raw_results)
-
-        if getattr(settings, "HIERARCHICAL_CHUNKING_ENABLED", False):
-            docs = await self._expand_to_parents(docs)
-
-        return docs[:top_k]
+        _, docs, _ = await self._prepare_evidence(
+            question=query,
+            project_id=project_id,
+            top_k=top_k,
+            use_memory=False,
+            paper_ids=paper_ids,
+        )
+        return docs
 
     def _build_context(self, docs: List[Dict]) -> str:
         """构建Prompt上下文"""

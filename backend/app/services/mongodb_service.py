@@ -97,7 +97,33 @@ class MongoDBService:
                 "section_anchor": chunk.get("section_anchor"),
             })
             ids.append(doc_id)
-        
+
+        return ids
+
+    def _fallback_insert_parent_chunks(
+        self, paper_id: int, parent_chunks: List[Dict[str, Any]]
+    ) -> List[str]:
+        """内存回退存储父块，确保父子索引链在 Mongo 异常时仍可恢复。"""
+        key = f"parent_{paper_id}"
+        if key not in self._fallback_store:
+            self._fallback_store[key] = []
+
+        ids = []
+        for pc in parent_chunks:
+            pid = pc.get("parent_id", "")
+            self._fallback_store[key].append({
+                "_id": pid,
+                "parent_id": pid,
+                "paper_id": paper_id,
+                "section_path": pc.get("section_path"),
+                "section_anchor": pc.get("section_anchor"),
+                "text": pc.get("text", ""),
+                "child_chunk_indices": pc.get("child_chunk_indices", []),
+                "page_range": pc.get("page_range", []),
+                "metadata": pc.get("metadata", {}),
+            })
+            ids.append(pid)
+
         return ids
     
     async def get_chunks(self, paper_id: int) -> List[Dict[str, Any]]:
@@ -187,20 +213,7 @@ class MongoDBService:
             return []
 
         if self._use_fallback:
-            key = f"parent_{paper_id}"
-            if key not in self._fallback_store:
-                self._fallback_store[key] = []
-            ids = []
-            for pc in parent_chunks:
-                pid = pc.get("parent_id", "")
-                self._fallback_store[key].append({
-                    "_id": pid,
-                    "parent_id": pid,
-                    "paper_id": paper_id,
-                    **pc,
-                })
-                ids.append(pid)
-            return ids
+            return self._fallback_insert_parent_chunks(paper_id, parent_chunks)
 
         try:
             collection = self.db.paper_parent_chunks
@@ -221,7 +234,9 @@ class MongoDBService:
             return [str(id) for id in result.inserted_ids]
         except Exception as e:
             logger.error(f"MongoDB insert parent chunks failed: {e}")
-            return []
+            logger.warning("Switching to in-memory fallback for parent chunks")
+            self._use_fallback = True
+            return self._fallback_insert_parent_chunks(paper_id, parent_chunks)
 
     async def get_parent_chunks_by_ids(self, parent_ids: List[str]) -> Dict[str, Dict]:
         """Batch fetch parent chunks: returns {parent_id: doc} map."""

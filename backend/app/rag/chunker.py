@@ -295,27 +295,31 @@ class HierarchicalChunker:
         paper_id: int,
         existing_sections=None,
     ) -> List[Chunk]:
-        leaf_sections = self.splitter.split(markdown, existing_sections)
+        section_roots = self.splitter.split_tree(markdown, existing_sections)
+        sections = list(self._iter_sections(section_roots))
         all_chunks: List[Chunk] = []
         child_seq = 0
 
-        for p_seq, section in enumerate(leaf_sections):
+        for p_seq, section in enumerate(sections):
             if self._is_reference_section(section.text):
-                continue
-            if len(section.text.strip()) < 50:
                 continue
 
             parent_id = f"{paper_id}_p{p_seq}"
-            sub_texts = self._maybe_split_oversized(section.text)
+            parent_text = section.text
+            child_source_text = self._extract_child_source_text(section)
+            parent_segments = self._split_text_with_spans(parent_text)
 
-            for sub_idx, sub_text in enumerate(sub_texts):
+            if not parent_text.strip():
+                continue
+
+            parents = []
+            for seg_idx, (seg_text, _, _) in enumerate(parent_segments):
                 actual_parent_id = (
-                    parent_id if len(sub_texts) == 1
-                    else f"{parent_id}_{sub_idx}"
+                    parent_id if len(parent_segments) == 1
+                    else f"{parent_id}_{seg_idx}"
                 )
-
                 parent = Chunk(
-                    text=sub_text,
+                    text=seg_text,
                     index=-1,
                     start_char=section.char_start,
                     end_char=section.char_end,
@@ -329,26 +333,44 @@ class HierarchicalChunker:
                     section_path=section.path,
                     section_anchor=section.anchor,
                 )
+                parent.metadata["child_chunk_indices"] = []
+                parents.append(parent)
                 all_chunks.append(parent)
 
-                children = self.child_chunker.split_text(sub_text)
-                child_indices = []
-                for child in children:
-                    child.chunk_type = "child"
-                    child.parent_id = actual_parent_id
-                    child.section_path = section.path
-                    child.section_anchor = section.anchor
-                    child.index = child_seq
-                    child.metadata = {
-                        **(child.metadata or {}),
-                        "page_number": section.page_start,
-                        "parent_id": actual_parent_id,
-                    }
-                    child_indices.append(child_seq)
-                    child_seq += 1
-                    all_chunks.append(child)
+            if not child_source_text.strip():
+                continue
 
-                parent.metadata["child_chunk_indices"] = child_indices
+            if len(child_source_text.strip()) < 20 and section.children:
+                continue
+
+            children = self.child_chunker.split_text(child_source_text)
+            for child in children:
+                assigned_parent = self._assign_parent_for_child(
+                    parents=parents,
+                    parent_segments=parent_segments,
+                    child=child,
+                )
+                child.chunk_type = "child"
+                child.parent_id = assigned_parent.parent_id
+                child.section_path = section.path
+                child.section_anchor = section.anchor
+                child.index = child_seq
+                child_page = self._estimate_page_number(
+                    section=section,
+                    chunk_start=child.start_char,
+                    chunk_end=child.end_char,
+                    source_len=len(child_source_text),
+                )
+                child.metadata = {
+                    **(child.metadata or {}),
+                    "page_number": child_page,
+                    "page_start": child_page,
+                    "page_end": child_page,
+                    "parent_id": assigned_parent.parent_id,
+                }
+                assigned_parent.metadata["child_chunk_indices"].append(child_seq)
+                child_seq += 1
+                all_chunks.append(child)
 
         if not all_chunks:
             fallback = self.child_chunker.split_text(markdown)
@@ -357,6 +379,116 @@ class HierarchicalChunker:
             return fallback
 
         return all_chunks
+
+    def _iter_sections(self, nodes: List["SectionNode"]):
+        """Yield section nodes in pre-order."""
+        for node in nodes:
+            yield node
+            if node.children:
+                yield from self._iter_sections(node.children)
+
+    def _extract_child_source_text(self, section) -> str:
+        """Return the section's own body text before the first child heading."""
+        if not section.text:
+            return ""
+
+        if not section.children:
+            return section.text
+
+        direct_child_starts = [
+            child.char_start for child in section.children
+            if child.char_start > section.char_start
+        ]
+        if not direct_child_starts:
+            return section.text
+
+        body_end = min(direct_child_starts) - section.char_start
+        if body_end <= 0:
+            return ""
+        return section.text[:body_end]
+
+    def _estimate_page_number(
+        self,
+        section,
+        chunk_start: int,
+        chunk_end: int,
+        source_len: int,
+    ) -> int:
+        """Estimate a chunk page number from its relative position in section text."""
+        page_start = int(section.page_start or 1)
+        page_end = int(section.page_end or page_start)
+        if page_end <= page_start or source_len <= 0:
+            return page_start
+
+        span_pages = page_end - page_start + 1
+        midpoint = (chunk_start + chunk_end) / 2.0
+        ratio = midpoint / max(1, source_len)
+        ratio = max(0.0, min(1.0, ratio))
+        offset = min(span_pages - 1, int(ratio * span_pages))
+        return page_start + offset
+
+    def _split_text_with_spans(self, text: str) -> List[tuple[str, int, int]]:
+        """Split parent text while keeping spans in the original section text."""
+        if len(text) <= self.parent_max_tokens:
+            return [(text, 0, len(text))]
+
+        paragraphs = re.split(r"\n{2,}", text)
+        segments: List[str] = []
+        current = ""
+        for para in paragraphs:
+            if current and len(current) + len(para) + 2 > self.parent_max_tokens:
+                segments.append(current.strip())
+                current = para
+            else:
+                current = f"{current}\n\n{para}" if current else para
+        if current.strip():
+            segments.append(current.strip())
+
+        if not segments:
+            return [(text, 0, len(text))]
+
+        spans: List[tuple[str, int, int]] = []
+        cursor = 0
+        for segment in segments:
+            if len(segment) > self.parent_max_tokens:
+                hard_parts = self._split_long_segment(segment)
+                hard_cursor = cursor
+                for hard_part in hard_parts:
+                    start = text.find(hard_part, hard_cursor)
+                    if start < 0:
+                        start = hard_cursor
+                    end = start + len(hard_part)
+                    spans.append((hard_part, start, end))
+                    hard_cursor = end
+                cursor = hard_cursor
+                continue
+            start = text.find(segment, cursor)
+            if start < 0:
+                start = cursor
+            end = start + len(segment)
+            spans.append((segment, start, end))
+            cursor = end
+        return spans
+
+    def _split_long_segment(self, text: str) -> List[str]:
+        """Hard-split a single oversized paragraph to enforce parent_max_tokens."""
+        return [
+            text[i:i + self.parent_max_tokens]
+            for i in range(0, len(text), self.parent_max_tokens)
+            if text[i:i + self.parent_max_tokens].strip()
+        ]
+
+    def _assign_parent_for_child(self, parents, parent_segments, child: Chunk) -> Chunk:
+        """Attach a child chunk to the parent segment that contains its midpoint."""
+        if len(parents) == 1:
+            return parents[0]
+
+        midpoint = (child.start_char + child.end_char) / 2.0
+        for parent, (_, seg_start, seg_end) in zip(parents, parent_segments):
+            if seg_start <= midpoint <= seg_end:
+                return parent
+
+        return parents[-1]
 
     def _maybe_split_oversized(self, text: str) -> List[str]:
         """Split a section that exceeds parent_max_tokens at paragraph boundaries."""

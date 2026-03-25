@@ -63,7 +63,7 @@ class MarkdownSectionSplitter:
         markdown: str,
         existing_sections: Optional[List[SectionInfo]] = None,
     ) -> List[SectionNode]:
-        """Parse markdown into a tree of SectionNode objects.
+        """Parse markdown and return leaf SectionNodes.
 
         Args:
             markdown: full cleaned markdown (doc.raw_markdown).
@@ -74,6 +74,21 @@ class MarkdownSectionSplitter:
         Returns:
             Flat list of *leaf* SectionNodes (sections with no children).
             These serve as parent chunk candidates for HierarchicalChunker.
+        """
+        root_nodes = self.split_tree(markdown, existing_sections)
+        leaves: List[SectionNode] = []
+        self._collect_leaves(root_nodes, leaves)
+        return leaves
+
+    def split_tree(
+        self,
+        markdown: str,
+        existing_sections: Optional[List[SectionInfo]] = None,
+    ) -> List[SectionNode]:
+        """Parse markdown and return the full section tree.
+
+        This preserves the existing ``split()`` leaf-only API while exposing a
+        tree-shaped view for hierarchical chunking.
         """
         if not markdown or not markdown.strip():
             return []
@@ -121,10 +136,7 @@ class MarkdownSectionSplitter:
 
         root_nodes = self._build_tree(raw_sections)
         self._assign_paths_and_anchors(root_nodes, prefix="")
-
-        leaves: List[SectionNode] = []
-        self._collect_leaves(root_nodes, leaves)
-        return leaves
+        return root_nodes
 
     def _build_page_map(
         self, existing_sections: Optional[List[SectionInfo]]

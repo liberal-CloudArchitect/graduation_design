@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     PDF_PARSE_TIMEOUT: int = 600
 
     # Phase 2: Hierarchical chunking (parent-child document index)
-    HIERARCHICAL_CHUNKING_ENABLED: bool = False
+    HIERARCHICAL_CHUNKING_ENABLED: bool = True
     PARENT_CHUNK_MAX_TOKENS: int = 2000
     CHILD_CHUNK_MAX_TOKENS: int = 400
     
