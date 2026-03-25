@@ -2,8 +2,9 @@
 # MinerU PDF Parse Service — vLLM-accelerated
 #
 # Base: vllm/vllm-openai (includes CUDA 12.x, PyTorch, vLLM).
-# RTX 4060 (Ada Lovelace, CC 8.9) uses v0.10.1.1.
-# For Volta/Turing/Blackwell GPUs, switch to v0.11.0.
+# RTX 5090 / Blackwell should prefer a CUDA 12.8+ image.
+# If you need the older 4060 profile, build with:
+#   --build-arg VLLM_BASE_IMAGE=vllm/vllm-openai:v0.10.1.1
 #
 # Two-process architecture inside the container:
 #   1. mineru-openai-server — vLLM-based VLM inference (controls GPU memory)
@@ -12,9 +13,10 @@
 # Models are downloaded during build so the image is self-contained.
 #
 # Requires host driver supporting CUDA >= 12.8 (Driver >= 570).
-# Tested on: RTX 4060 Laptop (8GB VRAM, Driver 572.16, Windows Docker Desktop)
+# Preferred for RTX 5090 / Blackwell. Legacy 4060 users can pin an older image.
 # --------------------------------------------------------------------------
-FROM vllm/vllm-openai:v0.10.1.1
+ARG VLLM_BASE_IMAGE=vllm/vllm-openai:v0.11.2
+FROM ${VLLM_BASE_IMAGE}
 
 # System deps: PDF/image libs, CJK fonts
 RUN apt-get update && \

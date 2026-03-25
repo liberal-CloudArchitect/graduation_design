@@ -7,16 +7,14 @@ cd "$SCRIPT_DIR"
 export PYTHONPATH="${PYTHONPATH:-$SCRIPT_DIR}"
 export MINERU_MODEL_SOURCE="${MINERU_MODEL_SOURCE:-local}"
 
-GPU_MEM_UTIL="${GPU_MEMORY_UTILIZATION:-0.40}"
-VLLM_PORT="${VLLM_SERVER_PORT:-30000}"
-APP_PORT="${BIND_PORT:-8010}"
-APP_HOST="${BIND_HOST:-0.0.0.0}"
-PIPELINE_DEVICE="${PIPELINE_DEVICE:-cpu}"
 START_VLLM="${START_VLLM:-auto}"
 MAX_WAIT="${VLLM_STARTUP_TIMEOUT_SEC:-180}"
 
 VLLM_PID=""
 UVICORN_PID=""
+GPU_NAME=""
+GPU_MEMORY_MB=0
+GPU_PROFILE="generic"
 
 cleanup() {
     local exit_code=$?
@@ -36,6 +34,56 @@ cleanup() {
 }
 
 trap cleanup EXIT INT TERM
+
+detect_gpu_profile() {
+    if ! command -v nvidia-smi >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local raw
+    raw="$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits 2>/dev/null | head -n1 || true)"
+    if [[ -z "$raw" ]]; then
+        return 0
+    fi
+
+    GPU_NAME="$(echo "$raw" | cut -d',' -f1 | xargs)"
+    GPU_MEMORY_MB="$(echo "$raw" | cut -d',' -f2 | xargs)"
+
+    if [[ "$GPU_NAME" == *"5090"* ]] || [[ "$GPU_NAME" == *"Blackwell"* ]] || [[ "${GPU_MEMORY_MB:-0}" -ge 30000 ]]; then
+        GPU_PROFILE="rtx5090"
+        export GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.65}"
+        export PIPELINE_DEVICE="${PIPELINE_DEVICE:-cuda}"
+        export MAX_CONCURRENT="${MAX_CONCURRENT:-2}"
+        export MAX_QUEUE_SIZE="${MAX_QUEUE_SIZE:-12}"
+        export GPU_MIN_FREE_MB="${GPU_MIN_FREE_MB:-4096}"
+    elif [[ "$GPU_NAME" == *"4090"* ]] || [[ "${GPU_MEMORY_MB:-0}" -ge 22000 ]]; then
+        GPU_PROFILE="rtx4090"
+        export GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.60}"
+        export PIPELINE_DEVICE="${PIPELINE_DEVICE:-cuda}"
+        export MAX_CONCURRENT="${MAX_CONCURRENT:-2}"
+        export MAX_QUEUE_SIZE="${MAX_QUEUE_SIZE:-8}"
+        export GPU_MIN_FREE_MB="${GPU_MIN_FREE_MB:-3072}"
+    else
+        GPU_PROFILE="default"
+        export GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.40}"
+        export PIPELINE_DEVICE="${PIPELINE_DEVICE:-cpu}"
+        export MAX_CONCURRENT="${MAX_CONCURRENT:-1}"
+        export MAX_QUEUE_SIZE="${MAX_QUEUE_SIZE:-16}"
+        export GPU_MIN_FREE_MB="${GPU_MIN_FREE_MB:-1024}"
+    fi
+}
+
+
+detect_gpu_profile
+
+GPU_MEM_UTIL="${GPU_MEMORY_UTILIZATION}"
+VLLM_PORT="${VLLM_SERVER_PORT:-30000}"
+APP_PORT="${BIND_PORT:-8010}"
+APP_HOST="${BIND_HOST:-0.0.0.0}"
+PIPELINE_DEVICE="${PIPELINE_DEVICE}"
+
+echo "[startup] GPU profile=${GPU_PROFILE} name=${GPU_NAME:-unknown} memory_mb=${GPU_MEMORY_MB:-0}"
+echo "[startup] Effective defaults: GPU_MEMORY_UTILIZATION=$GPU_MEM_UTIL PIPELINE_DEVICE=$PIPELINE_DEVICE MAX_CONCURRENT=${MAX_CONCURRENT} MAX_QUEUE_SIZE=${MAX_QUEUE_SIZE}"
 
 configure_pipeline_device() {
     echo "[startup] Configuring pipeline models: device-mode=$PIPELINE_DEVICE"
