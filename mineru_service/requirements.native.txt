@@ -1,9 +1,9 @@
-# Native Linux 4090 runtime for mineru_service.
+# Native Linux 5090/4090 runtime for mineru_service.
 # Use with:
 #   python3 -m venv .venv
 #   source .venv/bin/activate
-#   pip install -U pip
-#   pip install -r requirements.native.txt
+#   bash install_native.sh
 
 -r requirements.txt
+colorlog>=6.8,<7
 mineru[core]>=2.7.0

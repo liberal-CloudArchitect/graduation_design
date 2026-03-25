@@ -72,11 +72,19 @@ sudo apt-get install -y \
 cd /opt/mineru_service
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.native.txt
+bash ./install_native.sh
 ```
 
 如果你的服务器需要手动安装 CUDA 版 PyTorch，请先按宿主机 CUDA 驱动版本选择官方 wheel，再执行上面的依赖安装。`mineru-openai-server` 命令来自 `requirements.native.txt` 里的 `mineru[core]`。
+
+如果你坚持手动执行 `pip install -r requirements.native.txt`，建议至少先跑一次：
+
+```bash
+python3 -m pip install -U pip setuptools wheel
+python3 -m pip install --prefer-binary "colorlog>=6.8,<7"
+```
+
+这样可以避开部分镜像源把 `colorlog` 回退到极老源码包后触发的构建错误。
 
 ### 4. 下载模型与配置缓存
 
