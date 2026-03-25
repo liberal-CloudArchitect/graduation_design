@@ -278,7 +278,10 @@ def assess_quality(result: ParseResult) -> QualityScore:
 
     # Tables
     table_rows = re.findall(r"^\|.+\|$", md, re.MULTILINE)
-    separator_rows = [r for r in table_rows if re.match(r"^\|[\s\-:]+\|$", r)]
+    separator_rows = [
+        r for r in table_rows
+        if re.match(r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$", r)
+    ]
     qs.table_count = len(separator_rows)
     qs.has_tables_detected = qs.table_count > 0
 

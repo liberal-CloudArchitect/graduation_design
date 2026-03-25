@@ -20,6 +20,14 @@ python3 -m pip install --prefer-binary \
   "coloredlogs==15.0.1" \
   "humanfriendly==10.0"
 
+if command -v conda >/dev/null 2>&1; then
+  echo "[install] preinstalling native media stack from conda-forge ..."
+  conda install -y -c conda-forge \
+    "ffmpeg=7.*" \
+    "av==14.4.0" \
+    "cython<3.1"
+fi
+
 echo "[install] installing native MinerU runtime requirements ..."
 python3 -m pip install --prefer-binary \
   -c constraints.native.txt \

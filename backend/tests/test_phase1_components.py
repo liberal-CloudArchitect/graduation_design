@@ -4,6 +4,7 @@ Phase 1 组件单元测试
 测试 MinerU 集成链路上的核心组件，不需要外部服务即可运行。
 覆盖: MarkdownPostProcessor, ParseSanityGate, ComplexityResult, 路由决策逻辑。
 """
+import importlib.util
 import os
 import sys
 import pytest
@@ -122,6 +123,42 @@ class TestMarkdownPostProcessor:
         assert sec.page_start == 1
         assert sec.page_end is None
         assert sec.anchor is None
+
+
+class TestPhase1AcceptanceHeuristics:
+
+    @staticmethod
+    def _load_phase1_acceptance_module():
+        path = os.path.join(os.path.dirname(__file__), "test_phase1_acceptance.py")
+        spec = importlib.util.spec_from_file_location("phase1_acceptance_module", path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+
+    def test_assess_quality_detects_markdown_tables(self):
+        module = self._load_phase1_acceptance_module()
+        result = module.ParseResult(
+            pdf=module.TestPDF(
+                path="/tmp/table.pdf",
+                category="table_heavy",
+                description="table-sample",
+            ),
+            success=True,
+            markdown=(
+                "# Results\n\n"
+                "| Col1 | Col2 |\n"
+                "| --- | --- |\n"
+                "| A | B |\n"
+            ),
+            pages=[{"page_number": 1}],
+            elapsed_ms=123,
+        )
+
+        score = module.assess_quality(result)
+
+        assert score.table_count == 1
+        assert score.has_tables_detected is True
 
 
 # ---------------------------------------------------------------------------

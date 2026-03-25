@@ -8,13 +8,10 @@ from typing import List, Optional, Dict, Any, AsyncGenerator, Tuple
 from loguru import logger
 import json
 import re
-from sqlalchemy import select
 
 from app.core.config import settings
 from app.rag.memory_engine import DynamicMemoryEngine
 from app.rag.prompts import build_rag_prompt, build_conversation_history_text
-from app.models.database import async_session_maker
-from app.models.paper import Paper
 
 
 class RAGEngine:
@@ -1086,6 +1083,10 @@ class RAGEngine:
             return
 
         try:
+            from sqlalchemy import select
+            from app.models.database import async_session_maker
+            from app.models.paper import Paper
+
             async with async_session_maker() as db:
                 result = await db.execute(
                     select(Paper.id, Paper.title).where(Paper.id.in_(paper_ids))

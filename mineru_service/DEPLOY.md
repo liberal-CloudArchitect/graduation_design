@@ -77,6 +77,17 @@ bash ./install_native.sh
 
 如果你的服务器需要手动安装 CUDA 版 PyTorch，请先按宿主机 CUDA 驱动版本选择官方 wheel，再执行上面的依赖安装。`mineru-openai-server` 命令来自 `requirements.native.txt` 里的 `mineru[core]`。
 
+如果你当前使用的是 Conda 环境，推荐先显式安装这组原生依赖，再执行 `install_native.sh`：
+
+```bash
+conda install -y -c conda-forge \
+  "ffmpeg=7.*" \
+  "av==14.4.0" \
+  "cython<3.1"
+```
+
+这样可以避免 `pip` 在 `av` 上退回源码构建。
+
 如果你坚持手动执行 `pip install -r requirements.native.txt`，建议至少先跑一次：
 
 ```bash
@@ -94,11 +105,15 @@ python3 -m pip install --prefer-binary -c constraints.native.txt -r requirements
 
 ```bash
 source .venv/bin/activate
-export MINERU_MODEL_SOURCE=local
 mineru-models-download -s huggingface -m all
+export MINERU_MODEL_SOURCE=local
 ```
 
-如果 HuggingFace 不可达，可切换为对应镜像源，但要保持 `MINERU_MODEL_SOURCE=local`。
+注意:
+
+- 不要在执行 `mineru-models-download` 之前先设 `MINERU_MODEL_SOURCE=local`。MinerU 官方文档说明环境变量优先级高于命令行参数；如果提前设为 `local`，即使传了 `-s huggingface`，下载器仍会按 `local` 处理，导致在 `~/mineru.json` 尚未生成或 `models-dir.pipeline` 为空时抛出 `AttributeError: 'NoneType' object has no attribute 'get'`。
+- 正确顺序是: 先用 `huggingface` 或 `modelscope` 下载模型，等待下载器自动写入 `~/mineru.json`，再把 `MINERU_MODEL_SOURCE` 切到 `local` 用于离线解析。
+- 如果 HuggingFace 不可达，可改用 `mineru-models-download -s modelscope -m all`。切换到本地离线运行时，再设置 `MINERU_MODEL_SOURCE=local`。
 
 ### 5. 配置运行参数
 

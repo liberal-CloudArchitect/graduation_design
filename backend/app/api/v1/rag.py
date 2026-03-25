@@ -1,23 +1,36 @@
 """
 RAG API - RAG问答路由
 """
-from typing import List, Optional, Dict
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from datetime import datetime
 import json
 from loguru import logger
 
-from app.core.deps import get_db, get_current_user
-from app.models.user import User, Project
-from app.models.paper import Conversation, Paper
-from app.rag import rag_engine
-
-
 router = APIRouter()
+_security = HTTPBearer()
+
+
+async def _get_db_dependency():
+    """Delay importing database dependencies until the route is actually used."""
+    from app.core.deps import get_db
+
+    async for session in get_db():
+        yield session
+
+
+async def _get_current_user_dependency(
+    credentials: HTTPAuthorizationCredentials = Depends(_security),
+    db: Any = Depends(_get_db_dependency),
+):
+    """Delay importing auth dependencies so schema-only imports stay lightweight."""
+    from app.core.deps import get_current_user
+
+    return await get_current_user(credentials=credentials, db=db)
 
 
 # ============ Schemas ============
@@ -84,7 +97,7 @@ class ConversationResponse(BaseModel):
 
 
 async def _enrich_references_with_titles(
-    db: AsyncSession,
+    db: Any,
     references: List[dict]
 ) -> List[dict]:
     """批量补全文献标题，避免前端展示“未知文献”"""
@@ -98,6 +111,9 @@ async def _enrich_references_with_titles(
     }
     if not paper_ids:
         return references
+
+    from sqlalchemy import select
+    from app.models.paper import Paper
 
     result = await db.execute(
         select(Paper.id, Paper.title).where(Paper.id.in_(paper_ids))
@@ -139,7 +155,7 @@ def _ref_dict_to_item(ref: dict) -> ReferenceItem:
 
 
 async def _validate_requested_paper_ids(
-    db: AsyncSession,
+    db: Any,
     user_id: int,
     paper_ids: Optional[List[int]],
     project_id: Optional[int] = None,
@@ -151,6 +167,10 @@ async def _validate_requested_paper_ids(
     unique_ids = list(dict.fromkeys(int(pid) for pid in paper_ids if pid))
     if not unique_ids:
         return None
+
+    from sqlalchemy import select
+    from app.models.paper import Paper
+    from app.models.user import Project
 
     query = (
         select(Paper.id)
@@ -176,8 +196,8 @@ async def _validate_requested_paper_ids(
 @router.post("/ask", response_model=AnswerResponse)
 async def ask_question(
     request: QuestionRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Any = Depends(_get_db_dependency),
+    current_user: Any = Depends(_get_current_user_dependency),
 ):
     """
     RAG问答
@@ -187,6 +207,11 @@ async def ask_question(
     - **paper_ids**: 指定文献ID列表
     - **top_k**: 检索文档数量
     """
+    from sqlalchemy import select
+    from app.models.paper import Conversation
+    from app.models.user import Project
+    from app.rag import rag_engine
+
     # 验证项目权限
     if request.project_id:
         result = await db.execute(
@@ -264,14 +289,18 @@ async def ask_question(
 @router.post("/search", response_model=SearchResponse)
 async def search_documents(
     request: QuestionRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Any = Depends(_get_db_dependency),
+    current_user: Any = Depends(_get_current_user_dependency),
 ):
     """
     纯检索接口
 
     仅返回引用结果，不触发 LLM 生成，也不写入对话历史。
     """
+    from sqlalchemy import select
+    from app.models.user import Project
+    from app.rag import rag_engine
+
     if request.project_id:
         result = await db.execute(
             select(Project).where(
@@ -314,14 +343,18 @@ async def search_documents(
 @router.post("/stream")
 async def stream_answer(
     request: QuestionRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Any = Depends(_get_db_dependency),
+    current_user: Any = Depends(_get_current_user_dependency),
 ):
     """
     流式RAG问答 (Server-Sent Events)
     
     返回流式响应，实时输出答案
     """
+    from sqlalchemy import select
+    from app.models.user import Project
+    from app.rag import rag_engine
+
     # 验证项目权限
     if request.project_id:
         result = await db.execute(
@@ -373,10 +406,13 @@ async def stream_answer(
 async def list_conversations(
     project_id: Optional[int] = None,
     limit: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Any = Depends(_get_db_dependency),
+    current_user: Any = Depends(_get_current_user_dependency),
 ):
     """获取对话历史列表"""
+    from sqlalchemy import select
+    from app.models.paper import Conversation
+
     query = select(Conversation).where(
         Conversation.user_id == current_user.id
     )
@@ -417,10 +453,13 @@ async def list_conversations(
 
 @router.get("/conversations/count")
 async def get_conversation_count(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Any = Depends(_get_db_dependency),
+    current_user: Any = Depends(_get_current_user_dependency),
 ):
     """获取当前用户的对话总数"""
+    from sqlalchemy import func, select
+    from app.models.paper import Conversation
+
     result = await db.execute(
         select(func.count(Conversation.id)).where(
             Conversation.user_id == current_user.id
@@ -433,10 +472,13 @@ async def get_conversation_count(
 @router.get("/conversations/{conversation_id}", response_model=ConversationResponse)
 async def get_conversation(
     conversation_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Any = Depends(_get_db_dependency),
+    current_user: Any = Depends(_get_current_user_dependency),
 ):
     """获取对话详情"""
+    from sqlalchemy import select
+    from app.models.paper import Conversation
+
     result = await db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,
@@ -477,10 +519,13 @@ async def get_conversation(
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation(
     conversation_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    db: Any = Depends(_get_db_dependency),
+    current_user: Any = Depends(_get_current_user_dependency),
 ):
     """删除对话"""
+    from sqlalchemy import select
+    from app.models.paper import Conversation
+
     result = await db.execute(
         select(Conversation).where(
             Conversation.id == conversation_id,

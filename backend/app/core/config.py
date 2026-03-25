@@ -1,13 +1,18 @@
 """
 Configuration Management
 """
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from typing import Optional
 
 
 class Settings(BaseSettings):
     """应用配置"""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=True,
+    )
     
     # 基础配置
     APP_NAME: str = "文献分析大数据平台"
@@ -104,11 +109,6 @@ class Settings(BaseSettings):
     PARENT_CHUNK_MAX_TOKENS: int = 2000
     CHILD_CHUNK_MAX_TOKENS: int = 400
     
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
-
-
 @lru_cache()
 def get_settings() -> Settings:
     """获取配置单例"""
