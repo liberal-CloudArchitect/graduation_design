@@ -1,0 +1,214 @@
+nohup: ignoring input
+................................                                         [100%]
+32 passed in 0.22s
+
+============================================================================
+  Phase 1 验收测试 — MinerU PDF 解析集成
+============================================================================
+MinerU Service: http://127.0.0.1:8010
+Test PDFs found: 27
+  dual_column: 3 files
+  formula_heavy: 5 files
+  table_heavy: 8 files
+  scan: 10 files
+  simple: 1 files
+
+--- Test 1: MinerU Service Health Check ─────────────────────────
+  Status:           ok
+  Parse Backend:    mineru_official
+  Configured Backend: hybrid-http-client
+  Model Loaded:     True
+  GPU Total MB:     32109
+  GPU Used MB:      22269
+  GPU Free MB:      9839
+  Pipeline Device:  cuda
+  Active Jobs:      0
+  Waiting Jobs:     0
+  Max Concurrent:   2
+  vLLM Healthy:     True
+  vLLM URL:         http://127.0.0.1:30000
+  Parser Version:   N/A
+  Backend Error:    None
+  [PASS] Service is healthy
+
+--- Test 2: PDF Parsing Quality (by category) ───────────────────
+
+  [1/27] Parsing [dual_column] He_2016_Deep_Residual_Learning_CVPR.pdf ... OK (20000ms) score=85 md=45535ch secs=14 tbl=0 formula_blk=2 formula_inl=79 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [2/27] Parsing [dual_column] Huang_2017_DenseNet_CVPR.pdf ... OK (19586ms) score=85 md=47883ch secs=13 tbl=0 formula_blk=2 formula_inl=140 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [3/27] Parsing [dual_column] Xie_2017_ResNeXt_CVPR.pdf ... OK (19234ms) score=85 md=45815ch secs=17 tbl=0 formula_blk=4 formula_inl=126 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [4/27] Parsing [formula_heavy] Devlin_2018_BERT.pdf ... OK (17370ms) score=85 md=67648ch secs=35 tbl=0 formula_blk=6 formula_inl=109 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [5/27] Parsing [formula_heavy] Ho_2020_DDPM.pdf ... OK (20262ms) score=85 md=71106ch secs=24 tbl=0 formula_blk=19 formula_inl=194 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [6/27] Parsing [formula_heavy] Kingma_2013_Auto-Encoding_Variational_Bayes.pdf ... OK (20793ms) score=85 md=60661ch secs=23 tbl=0 formula_blk=37 formula_inl=261 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [7/27] Parsing [formula_heavy] Kingma_2014_Adam.pdf ... OK (15508ms) score=85 md=53756ch secs=21 tbl=0 formula_blk=28 formula_inl=284 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [8/27] Parsing [formula_heavy] Vaswani_2017_Attention_Is_All_You_Need.pdf ... OK (17775ms) score=85 md=42938ch secs=26 tbl=0 formula_blk=7 formula_inl=76 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [9/27] Parsing [table_heavy] Camelot_assam.pdf ... OK (14327ms) score=50 md=3876ch secs=0 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [10/27] Parsing [table_heavy] Camelot_birdisland.pdf ... OK (26582ms) score=65 md=12294ch secs=6 tbl=0 formula_blk=0 formula_inl=50 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [11/27] Parsing [table_heavy] Camelot_budget.pdf ... OK (25196ms) score=50 md=6890ch secs=0 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [12/27] Parsing [table_heavy] Camelot_diesel_engines.pdf ... OK (27288ms) score=65 md=104045ch secs=82 tbl=0 formula_blk=0 formula_inl=129 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [13/27] Parsing [table_heavy] Camelot_multiple_tables.pdf ... OK (2786ms) score=50 md=823ch secs=0 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [14/27] Parsing [table_heavy] Camelot_table_region.pdf ... OK (8076ms) score=50 md=2410ch secs=0 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [15/27] Parsing [table_heavy] Camelot_vertical_header.pdf ... OK (14032ms) score=65 md=19140ch secs=4 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [16/27] Parsing [table_heavy] PDFPlumber_ca_warn_report.pdf ... OK (38118ms) score=50 md=98709ch secs=0 tbl=0 formula_blk=0 formula_inl=2 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [17/27] Parsing [scan] OCRmyPDF_3small.pdf ... OK (3555ms) score=78 md=668ch secs=2 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [18/27] Parsing [scan] OCRmyPDF_c02-22.pdf ... OK (4318ms) score=78 md=1262ch secs=1 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [19/27] Parsing [scan] OCRmyPDF_cardinal.pdf ... OK (17303ms) score=85 md=16219ch secs=15 tbl=0 formula_blk=0 formula_inl=3 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [20/27] Parsing [scan] OCRmyPDF_ccitt.pdf ... OK (10235ms) score=85 md=4451ch secs=6 tbl=0 formula_blk=0 formula_inl=1 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [21/27] Parsing [scan] OCRmyPDF_jbig2.pdf ... OK (10506ms) score=85 md=4451ch secs=6 tbl=0 formula_blk=0 formula_inl=1 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [22/27] Parsing [scan] OCRmyPDF_linn.pdf ... OK (10125ms) score=85 md=4451ch secs=6 tbl=0 formula_blk=0 formula_inl=1 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [23/27] Parsing [scan] OCRmyPDF_multipage.pdf ... OK (6437ms) score=78 md=7521ch secs=1 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [24/27] Parsing [scan] OCRmyPDF_poster.pdf ... OK (11061ms) score=85 md=4634ch secs=6 tbl=0 formula_blk=0 formula_inl=1 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [25/27] Parsing [scan] OCRmyPDF_tagged.pdf ... OK (2845ms) score=68 md=274ch secs=3 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[none]
+    (cooling down 30s for GPU memory)
+
+  [26/27] Parsing [scan] OCRmyPDF_toc.pdf ... OK (1377ms) score=45 md=134ch secs=0 tbl=0 formula_blk=0 formula_inl=0 garble=0.000 issues=[LOW_CHARS_PER_PAGE(67)]
+    (cooling down 30s for GPU memory)
+
+  [27/27] Parsing [simple] test_arxiv.pdf ... OK (18080ms) score=80 md=42933ch secs=26 tbl=0 formula_blk=7 formula_inl=76 garble=0.000 issues=[none]
+
+--- Test 3: Acceptance Criteria Evaluation ──────────────────────
+
+  Parse success rate: 27/27 (100.0%)
+
+  [Criterion 1] Complex PDF avg quality score: 73.0/100 [PASS] (target ≥ 50)
+    dual_column: avg=85.0 (n=3)
+    formula_heavy: avg=85.0 (n=5)
+    table_heavy: avg=55.6 (n=8)
+    scan: avg=77.2 (n=10)
+
+  [Criterion 2] Formula detection rate: 5/5 (100.0%) [PASS] (target ≥ 50%)
+    Total LaTeX blocks: 97, inline: 924
+
+  [Criterion 3] Table detection rate: 0/8 (0.0%) [WARN] (target ≥ 50%)
+    Total Markdown tables detected: 0
+
+  [Criterion 4] Parse latency: avg=14918ms, p95=27288ms, max=38118ms [PASS] (timeout=180s)
+
+  [Criterion 5] Fallback mechanism: 0 failures, all handled=yes [PASS]
+
+  [Criterion 6] API response compatibility: [PASS]
+
+--- Test 4: Content Quality Spot Checks ─────────────────────────
+
+  Spot check: Vaswani_2017_Attention_Is_All_You_Need
+    Length: 42938 chars
+    Contains 'attention': True
+    Contains 'transformer': True
+    Block equations: 7
+    First equation preview: $$
+\operatorname {A t t e n t i o n} (Q, K, V) = \operatorname {s o f t m a x} \left(\frac {Q K ^ {T}}{\sqrt {d _ {k}}}\...
+
+  Spot check: Xie_2017_ResNeXt_CVPR
+    Length: 45815 chars
+    Contains 'residual': True
+
+--- Test 5: Markdown Structure Validation ───────────────────────
+    All structure checks passed
+
+============================================================================
+  Phase 1 验收总结
+============================================================================
+  [PASS] 1. 复杂论文解析质量 — avg_score=73.0
+  [PASS] 2. 公式还原 (LaTeX) — rate=100.0%
+  [WARN] 3. 表格还原 (Markdown) — rate=0.0%
+  [PASS] 4. 解析性能 — p95=27288ms
+  [PASS] 5. 降级机制 — failures=0
+  [PASS] 6. API 兼容性 — response structure OK
+
+  Overall: 5/6 criteria passed
+
+  △ Phase 1 基本可用 — 建议修复 WARN 项后进入阶段 2
+
+--- Detailed Results Table ──────────────────────────────────────
+  File                                          Cat            Score    Time Secs Tbl   Eq  Garble Issues
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Devlin_2018_BERT                              formula_heavy     85  17370ms   35   0  115  0.000 -
+  He_2016_Deep_Residual_Learning_CVPR           dual_column       85  20000ms   14   0   81  0.000 -
+  Ho_2020_DDPM                                  formula_heavy     85  20262ms   24   0  213  0.000 -
+  Huang_2017_DenseNet_CVPR                      dual_column       85  19586ms   13   0  142  0.000 -
+  Kingma_2013_Auto-Encoding_Variational_Bayes   formula_heavy     85  20793ms   23   0  298  0.000 -
+  Kingma_2014_Adam                              formula_heavy     85  15508ms   21   0  312  0.000 -
+  OCRmyPDF_cardinal                             scan              85  17303ms   15   0    3  0.000 -
+  OCRmyPDF_ccitt                                scan              85  10235ms    6   0    1  0.000 -
+  OCRmyPDF_jbig2                                scan              85  10506ms    6   0    1  0.000 -
+  OCRmyPDF_linn                                 scan              85  10125ms    6   0    1  0.000 -
+  OCRmyPDF_poster                               scan              85  11061ms    6   0    1  0.000 -
+  Vaswani_2017_Attention_Is_All_You_Need        formula_heavy     85  17775ms   26   0   83  0.000 -
+  Xie_2017_ResNeXt_CVPR                         dual_column       85  19234ms   17   0  130  0.000 -
+  test_arxiv                                    simple            80  18080ms   26   0   83  0.000 -
+  OCRmyPDF_3small                               scan              78   3555ms    2   0    0  0.000 -
+  OCRmyPDF_c02-22                               scan              78   4318ms    1   0    0  0.000 -
+  OCRmyPDF_multipage                            scan              78   6437ms    1   0    0  0.000 -
+  OCRmyPDF_tagged                               scan              68   2845ms    3   0    0  0.000 -
+  Camelot_birdisland                            table_heavy       65  26582ms    6   0   50  0.000 -
+  Camelot_diesel_engines                        table_heavy       65  27288ms   82   0  129  0.000 -
+  Camelot_vertical_header                       table_heavy       65  14032ms    4   0    0  0.000 -
+  Camelot_assam                                 table_heavy       50  14327ms    0   0    0  0.000 -
+  Camelot_budget                                table_heavy       50  25196ms    0   0    0  0.000 -
+  Camelot_multiple_tables                       table_heavy       50   2786ms    0   0    0  0.000 -
+  Camelot_table_region                          table_heavy       50   8076ms    0   0    0  0.000 -
+  PDFPlumber_ca_warn_report                     table_heavy       50  38118ms    0   0    2  0.000 -
+  OCRmyPDF_toc                                  scan              45   1377ms    0   0    0  0.000 LOW_CHARS_PER_PAGE(67)
+
+  Results saved to: /root/autodl-tmp/graduation_design/backend/tests/phase1_acceptance_results.json
+..........................................                               [100%]
+42 passed in 0.49s
+
+==> Phase 1 component tests
+    /root/miniconda3/envs/mineru/bin/pytest tests/test_phase1_components.py -q
+    [OK] Phase 1 component tests
+
+==> Phase 1 MinerU acceptance
+    /root/miniconda3/bin/python tests/test_phase1_acceptance.py
+    [OK] Phase 1 MinerU acceptance
+
+==> Phase 2 acceptance tests
+    /root/miniconda3/envs/mineru/bin/pytest tests/test_phase2_acceptance.py -q
+    [OK] Phase 2 acceptance tests
