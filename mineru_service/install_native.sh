@@ -15,7 +15,14 @@ python3 -m pip install -U pip setuptools wheel
 echo "[install] preinstalling a modern colorlog wheel ..."
 python3 -m pip install --prefer-binary "colorlog>=6.8,<7"
 
+echo "[install] preinstalling resolver hot spots ..."
+python3 -m pip install --prefer-binary \
+  "coloredlogs==15.0.1" \
+  "humanfriendly==10.0"
+
 echo "[install] installing native MinerU runtime requirements ..."
-python3 -m pip install --prefer-binary -r requirements.native.txt
+python3 -m pip install --prefer-binary \
+  -c constraints.native.txt \
+  -r requirements.native.txt
 
 echo "[install] done"

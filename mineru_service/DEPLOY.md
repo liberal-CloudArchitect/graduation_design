@@ -82,9 +82,11 @@ bash ./install_native.sh
 ```bash
 python3 -m pip install -U pip setuptools wheel
 python3 -m pip install --prefer-binary "colorlog>=6.8,<7"
+python3 -m pip install --prefer-binary "coloredlogs==15.0.1" "humanfriendly==10.0"
+python3 -m pip install --prefer-binary -c constraints.native.txt -r requirements.native.txt
 ```
 
-这样可以避开部分镜像源把 `colorlog` 回退到极老源码包后触发的构建错误。
+这样可以避开部分镜像源在 `onnxruntime -> coloredlogs -> humanfriendly` 这条链上反复回溯，导致 `resolution-too-deep` 或旧包构建错误。
 
 ### 4. 下载模型与配置缓存
 

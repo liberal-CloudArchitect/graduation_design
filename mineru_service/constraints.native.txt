@@ -1,0 +1,5 @@
+# Constrain transitive dependencies that otherwise trigger excessive backtracking
+# on some mirrors (notably onnxruntime -> coloredlogs -> humanfriendly).
+coloredlogs==15.0.1
+humanfriendly==10.0
+colorlog==6.10.1
